@@ -1,16 +1,31 @@
 'use client'
-import { isTransferWindowOpen, nextTransferWindow } from '../lib/game'
+import { getTransferWindowStatus, nextTransferWindow } from '../lib/game'
+
+function formatUK(date) {
+  return date.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Europe/London',
+  })
+}
 
 export default function TransferBanner() {
-  const open = isTransferWindowOpen()
-  const next = nextTransferWindow()
-  const fmt = next.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  const status = getTransferWindowStatus()
 
+  if (status.open) {
+    return (
+      <div className="text-center text-sm font-semibold py-2 px-4 bg-ffc-gold text-black">
+        🟢 Transfer Window OPEN — closes {formatUK(status.closesAt)} (UK time)
+      </div>
+    )
+  }
+
+  const next = nextTransferWindow()
   return (
-    <div className={`text-center text-sm font-semibold py-2 px-4 ${open ? 'bg-ffc-gold text-black' : 'bg-ffc-red text-white'}`}>
-      {open
-        ? '🟢 Transfer Window is OPEN — Make your changes now!'
-        : `🔴 Transfer Window CLOSED — Next window: ${fmt}`}
+    <div className="text-center text-sm font-semibold py-2 px-4 bg-ffc-red text-white">
+      🔴 Transfer Window CLOSED — opens {formatUK(next.opensAt)} (UK time)
     </div>
   )
 }

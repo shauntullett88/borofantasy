@@ -7,6 +7,7 @@ const navItems = [
   { href: '/my-team', label: 'My Team', icon: '⚽' },
   { href: '/transfers', label: 'Transfers', icon: '🔄' },
   { href: '/leaderboard', label: 'Table', icon: '🏆' },
+  { href: '/rules', label: 'Rules', icon: '📋' },
   { href: '/admin', label: 'Admin', icon: '⚙️', adminOnly: true },
 ]
 

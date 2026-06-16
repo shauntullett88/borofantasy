@@ -3,15 +3,26 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../components/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { isTransferWindowOpen, validateSquad, validateFormationSlots, POSITION_COLORS } from '../../lib/game'
+import { validateSquad, validateFormationSlots, getTransferWindowStatus, POSITION_COLORS } from '../../lib/game'
 import { DEFAULT_FORMATION, buildSlots } from '../../lib/formations'
 import PitchFormation from '../../components/PitchFormation'
 import PlayerPickerModal from '../../components/PlayerPickerModal'
 
+function formatUK(date) {
+  return date.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Europe/London',
+  })
+}
+
 export default function TransfersPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
-  const windowOpen = isTransferWindowOpen()
+  const windowStatus = getTransferWindowStatus()
+  const windowOpen = windowStatus.open
 
   const [allPlayers, setAllPlayers] = useState([])
   const [formation, setFormation] = useState(DEFAULT_FORMATION)
@@ -230,7 +241,9 @@ export default function TransfersPage() {
     <div className="max-w-lg mx-auto px-4 py-4">
       <h1 className="text-2xl font-bold mb-1">Transfers</h1>
       <p className="text-gray-400 text-sm mb-4">
-        {windowOpen ? 'Window is open — build your squad' : 'Window closed — you can preview but not save'}
+        {windowOpen
+          ? `Window is open — closes ${formatUK(windowStatus.closesAt)} (UK time)`
+          : 'Window closed — you can preview but not save'}
       </p>
 
       {/* Status row */}
