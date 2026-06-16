@@ -3,30 +3,30 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../components/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { isTransferWindowOpen, validateSquad, POSITIONS, POSITION_COLORS } from '../../lib/game'
-import PlayerCard from '../../components/PlayerCard'
-
-const STATUS_BADGE = {
-  active: null,
-  injured: { label: 'INJ', cls: 'bg-yellow-500 text-black' },
-  left: { label: 'LEFT', cls: 'bg-red-600 text-white' },
-}
+import { isTransferWindowOpen, validateSquad, validateFormationSlots, POSITION_COLORS } from '../../lib/game'
+import { DEFAULT_FORMATION, buildSlots } from '../../lib/formations'
+import PitchFormation from '../../components/PitchFormation'
+import PlayerPickerModal from '../../components/PlayerPickerModal'
 
 export default function TransfersPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
   const windowOpen = isTransferWindowOpen()
 
-  const [players, setPlayers] = useState([])
-  const [starters, setStarters] = useState([])
-  const [bench, setBench] = useState([])
+  const [allPlayers, setAllPlayers] = useState([])
+  const [formation, setFormation] = useState(DEFAULT_FORMATION)
+  // pitchSlots[i] = player object or null, indexed to match buildSlots(formation)
+  const [pitchSlots, setPitchSlots] = useState(Array(11).fill(null))
   const [captainId, setCaptainId] = useState(null)
-  const [search, setSearch] = useState('')
-  const [posFilter, setPosFilter] = useState('ALL')
-  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [bench, setBench] = useState([null, null, null])
+
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerTarget, setPickerTarget] = useState(null) // { type: 'pitch'|'bench', index }
+
   const [errors, setErrors] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [fetching, setFetching] = useState(true)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -34,93 +34,177 @@ export default function TransfersPage() {
 
   const fetchData = useCallback(async () => {
     if (!user) return
-    const { data: allPlayers } = await supabase.from('players').select('*').order('name')
-    setPlayers(allPlayers || [])
+    setFetching(true)
 
-    const { data: squadData } = await supabase
-      .from('squads')
-      .select('*, players(*)')
-      .eq('user_id', user.id)
+    const { data: players } = await supabase.from('players').select('*').order('name')
+    setAllPlayers(players || [])
+
+    const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
+    const savedFormation = settings?.formation || DEFAULT_FORMATION
+    setFormation(savedFormation)
+
+    const { data: squadData } = await supabase.from('squads').select('*, players(*)').eq('user_id', user.id)
 
     if (squadData?.length > 0) {
-      setStarters(squadData.filter((s) => !s.is_bench).map((s) => s.players))
-      setBench(squadData.filter((s) => s.is_bench).map((s) => s.players))
-      const cap = squadData.find((s) => s.is_captain)
+      const slots = buildSlots(savedFormation)
+      const newPitch = Array(11).fill(null)
+      const newBench = [null, null, null]
+
+      const starters = squadData.filter((s) => !s.is_bench)
+      const benchRows = squadData.filter((s) => s.is_bench)
+
+      // Place starters: prefer stored slot_index if it still fits the formation's line for that position
+      const placed = new Set()
+      for (const sq of starters) {
+        if (sq.slot_index != null && slots[sq.slot_index] && slots[sq.slot_index].line === sq.players.position && !placed.has(sq.slot_index)) {
+          newPitch[sq.slot_index] = sq.players
+          placed.add(sq.slot_index)
+        }
+      }
+      // Place any starters that didn't get a valid stored slot into the first open matching slot
+      for (const sq of starters) {
+        if ([...placed].some((i) => newPitch[i]?.id === sq.players.id)) continue
+        const openIdx = slots.findIndex((s, i) => s.line === sq.players.position && !newPitch[i])
+        if (openIdx !== -1) {
+          newPitch[openIdx] = sq.players
+          placed.add(openIdx)
+        }
+      }
+
+      benchRows.forEach((sq, i) => { if (i < 3) newBench[i] = sq.players })
+
+      setPitchSlots(newPitch)
+      setBench(newBench)
+      const cap = starters.find((s) => s.is_captain)
       setCaptainId(cap?.player_id || null)
     }
+
+    setFetching(false)
   }, [user])
 
-  useEffect(() => {
-    if (user) fetchData()
-  }, [user, fetchData])
+  useEffect(() => { if (user) fetchData() }, [user, fetchData])
 
-  const allSelected = [...starters, ...bench]
-  const selectedIds = new Set(allSelected.map((p) => p.id))
+  const slots = buildSlots(formation)
+  const selectedIds = new Set([...pitchSlots.filter(Boolean).map((p) => p.id), ...bench.filter(Boolean).map((p) => p.id)])
 
-  const filtered = players.filter((p) => {
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase())
-    const matchPos = posFilter === 'ALL' || p.position === posFilter
-    const matchStatus = statusFilter === 'ALL' || p.status === statusFilter
-    return matchSearch && matchPos && matchStatus
-  })
+  function changeFormation(newFormation) {
+    const newSlots = buildSlots(newFormation)
+    const newPitch = Array(11).fill(null)
+    const displaced = []
 
-  function addPlayer(player) {
-    if (selectedIds.has(player.id)) return
-    if (starters.length < 11) {
-      setStarters((prev) => [...prev, player])
-    } else if (bench.length < 3) {
-      setBench((prev) => [...prev, player])
+    // Re-place every currently-selected starter into the first open slot
+    // in the new formation that matches their position.
+    const currentPlayers = pitchSlots.filter(Boolean)
+    const used = new Set()
+    for (const player of currentPlayers) {
+      const idx = newSlots.findIndex((s, i) => s.line === player.position && !used.has(i))
+      if (idx !== -1) {
+        newPitch[idx] = player
+        used.add(idx)
+      } else {
+        displaced.push(player)
+      }
+    }
+
+    setFormation(newFormation)
+    setPitchSlots(newPitch)
+    if (displaced.length > 0) {
+      setErrors([`${displaced.map((p) => p.name).join(', ')} don't fit the new formation and were removed. Re-add them from the bench or player list.`])
+    } else {
+      setErrors([])
+    }
+    if (captainId && !newPitch.some((p) => p?.id === captainId)) {
+      setCaptainId(null)
     }
   }
 
-  function removePlayer(playerId) {
-    setStarters((prev) => prev.filter((p) => p.id !== playerId))
-    setBench((prev) => prev.filter((p) => p.id !== playerId))
-    if (captainId === playerId) setCaptainId(null)
+  function openPickerForPitch(slotIndex) {
+    setPickerTarget({ type: 'pitch', index: slotIndex })
+    setPickerOpen(true)
   }
 
-  function moveToBench(playerId) {
-    const player = starters.find((p) => p.id === playerId)
-    if (!player || bench.length >= 3) return
-    setStarters((prev) => prev.filter((p) => p.id !== playerId))
-    setBench((prev) => [...prev, player])
-    if (captainId === playerId) setCaptainId(null)
+  function openPickerForBench(benchIndex) {
+    setPickerTarget({ type: 'bench', index: benchIndex })
+    setPickerOpen(true)
   }
 
-  function moveToStart(playerId) {
-    const player = bench.find((p) => p.id === playerId)
-    if (!player || starters.length >= 11) return
-    setBench((prev) => prev.filter((p) => p.id !== playerId))
-    setStarters((prev) => [...prev, player])
+  function handleRemoveFromSlot(target) {
+    if (target.type === 'pitch') {
+      const removed = pitchSlots[target.index]
+      const next = [...pitchSlots]
+      next[target.index] = null
+      setPitchSlots(next)
+      if (removed && captainId === removed.id) setCaptainId(null)
+    } else {
+      const next = [...bench]
+      next[target.index] = null
+      setBench(next)
+    }
+  }
+
+  function handlePick(player) {
+    if (!pickerTarget) return
+    if (pickerTarget.type === 'pitch') {
+      const next = [...pitchSlots]
+      next[pickerTarget.index] = player
+      setPitchSlots(next)
+    } else {
+      const next = [...bench]
+      next[pickerTarget.index] = player
+      setBench(next)
+    }
+    setPickerOpen(false)
+    setPickerTarget(null)
+  }
+
+  function eligiblePlayersForTarget() {
+    if (!pickerTarget) return []
+    if (pickerTarget.type === 'pitch') {
+      const requiredLine = slots[pickerTarget.index]?.line
+      return allPlayers.filter((p) => p.position === requiredLine && p.status === 'active' && !selectedIds.has(p.id))
+    }
+    // Bench accepts any position
+    return allPlayers.filter((p) => p.status === 'active' && !selectedIds.has(p.id))
   }
 
   async function saveSquad() {
-    const errs = validateSquad(starters, bench, captainId)
+    const starters = pitchSlots.filter(Boolean)
+    const benchPlayers = bench.filter(Boolean)
+    const errs = [
+      ...validateSquad(starters, benchPlayers, captainId),
+      ...validateFormationSlots(pitchSlots, slots),
+    ]
     if (errs.length > 0) { setErrors(errs); return }
     setErrors([])
     setSaving(true)
 
-    // Delete existing squad
     await supabase.from('squads').delete().eq('user_id', user.id)
 
-    // Insert new
     const rows = [
-      ...starters.map((p) => ({
+      ...pitchSlots.map((player, idx) => player ? {
         user_id: user.id,
-        player_id: p.id,
+        player_id: player.id,
         is_bench: false,
-        is_captain: p.id === captainId,
-      })),
-      ...bench.map((p) => ({
+        is_captain: player.id === captainId,
+        slot_index: idx,
+      } : null).filter(Boolean),
+      ...bench.map((player) => player ? {
         user_id: user.id,
-        player_id: p.id,
+        player_id: player.id,
         is_bench: true,
         is_captain: false,
-      })),
+        slot_index: null,
+      } : null).filter(Boolean),
     ]
 
-    const { error } = await supabase.from('squads').insert(rows)
-    if (error) {
+    const { error: squadError } = await supabase.from('squads').insert(rows)
+
+    await supabase.from('user_settings').upsert(
+      { user_id: user.id, formation, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+
+    if (squadError) {
       setErrors(['Failed to save squad. Please try again.'])
     } else {
       setSaved(true)
@@ -129,7 +213,18 @@ export default function TransfersPage() {
     setSaving(false)
   }
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-400">Loading…</div></div>
+  const requiredLineForPicker = pickerTarget?.type === 'pitch' ? slots[pickerTarget.index]?.line : 'Any'
+  const pitchSlotsForDisplay = slots.map((s, i) => ({
+    player: pitchSlots[i],
+    isCaptain: pitchSlots[i]?.id === captainId,
+  }))
+
+  if (loading || fetching) {
+    return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-400">Loading…</div></div>
+  }
+
+  const startersFilled = pitchSlots.filter(Boolean).length
+  const benchFilled = bench.filter(Boolean).length
 
   return (
     <div className="max-w-lg mx-auto px-4 py-4">
@@ -138,25 +233,22 @@ export default function TransfersPage() {
         {windowOpen ? 'Window is open — build your squad' : 'Window closed — you can preview but not save'}
       </p>
 
-      {/* Current squad summary */}
-      <div className="bg-ffc-surface rounded-2xl p-4 border border-ffc-muted mb-4">
-        <div className="flex justify-between text-sm mb-3">
-          <span className="text-gray-400">Starting XI</span>
-          <span className={starters.length === 11 ? 'text-green-400' : 'text-ffc-gold'}>{starters.length}/11</span>
+      {/* Status row */}
+      <div className="flex gap-3 mb-4 text-sm">
+        <div className="flex-1 bg-ffc-surface rounded-xl p-3 border border-ffc-muted text-center">
+          <div className={startersFilled === 11 ? 'text-green-400 font-bold' : 'text-ffc-gold font-bold'}>{startersFilled}/11</div>
+          <div className="text-xs text-gray-400">Starting XI</div>
         </div>
-        <div className="flex justify-between text-sm mb-3">
-          <span className="text-gray-400">Bench</span>
-          <span className={bench.length === 3 ? 'text-green-400' : 'text-ffc-gold'}>{bench.length}/3</span>
+        <div className="flex-1 bg-ffc-surface rounded-xl p-3 border border-ffc-muted text-center">
+          <div className={benchFilled === 3 ? 'text-green-400 font-bold' : 'text-ffc-gold font-bold'}>{benchFilled}/3</div>
+          <div className="text-xs text-gray-400">Bench</div>
         </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Captain</span>
-          <span className={captainId ? 'text-ffc-gold' : 'text-red-400'}>
-            {captainId ? (allSelected.find((p) => p.id === captainId)?.name || '—') : 'Not set'}
-          </span>
+        <div className="flex-1 bg-ffc-surface rounded-xl p-3 border border-ffc-muted text-center">
+          <div className={captainId ? 'text-ffc-gold font-bold' : 'text-red-400 font-bold'}>{captainId ? '👑' : '—'}</div>
+          <div className="text-xs text-gray-400">Captain</div>
         </div>
       </div>
 
-      {/* Errors */}
       {errors.length > 0 && (
         <div className="bg-red-900/40 border border-red-700 rounded-xl p-3 mb-4">
           {errors.map((e, i) => <p key={i} className="text-red-300 text-sm">{e}</p>)}
@@ -169,62 +261,59 @@ export default function TransfersPage() {
         </div>
       )}
 
-      {/* Starters */}
-      <div className="bg-ffc-pitch/60 rounded-2xl p-3 border border-ffc-pitch mb-3">
-        <div className="flex justify-between items-center mb-2">
-          <h2 className="text-xs font-bold tracking-widest text-green-300 uppercase">Starting XI</h2>
-          <span className="text-xs text-gray-400">{starters.length}/11</span>
-        </div>
-        {starters.length === 0 ? (
-          <p className="text-gray-500 text-xs text-center py-4">Select players below</p>
-        ) : (
-          <div className="space-y-1.5">
-            {starters.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 bg-ffc-surface/60 rounded-lg px-3 py-2">
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${POSITION_COLORS[p.position]}`}>{p.position}</span>
-                <span className={`flex-1 text-sm ${p.status === 'left' ? 'text-red-400 line-through' : p.status === 'injured' ? 'text-yellow-300' : ''}`}>{p.name}</span>
-                {captainId === p.id && <span className="text-xs">👑</span>}
-                {STATUS_BADGE[p.status] && (
-                  <span className={`text-xs px-1 rounded ${STATUS_BADGE[p.status].cls}`}>{STATUS_BADGE[p.status].label}</span>
-                )}
-                <div className="flex gap-1">
-                  {captainId !== p.id && (
-                    <button onClick={() => setCaptainId(p.id)} className="text-xs text-ffc-gold border border-ffc-gold rounded px-1.5 py-0.5">C</button>
-                  )}
-                  <button onClick={() => moveToBench(p.id)} disabled={bench.length >= 3} className="text-xs text-blue-400 border border-blue-700 rounded px-1.5 py-0.5 disabled:opacity-30">→B</button>
-                  <button onClick={() => removePlayer(p.id)} className="text-xs text-red-400 border border-red-800 rounded px-1.5 py-0.5">✕</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      {/* Pitch with formation picker */}
+      <div className="mb-2">
+        <p className="text-xs text-gray-400 mb-1.5 px-1">Tap a position to add or change a player. Tap a filled spot for options.</p>
+        <PitchFormation
+          formation={formation}
+          onFormationChange={changeFormation}
+          slots={pitchSlotsForDisplay}
+          onSlotClick={openPickerForPitch}
+        />
       </div>
+
+      {/* Selected starter quick-actions (captain / remove) */}
+      {startersFilled > 0 && (
+        <div className="bg-ffc-surface/60 rounded-2xl p-3 border border-ffc-muted mb-4 space-y-1.5">
+          {pitchSlots.map((player, idx) => player && (
+            <div key={player.id} className="flex items-center gap-2 bg-ffc-dark/60 rounded-lg px-3 py-2">
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${POSITION_COLORS[player.position]}`}>{player.position}</span>
+              <span className="flex-1 text-sm">{player.name}</span>
+              {captainId === player.id && <span className="text-xs">👑</span>}
+              <div className="flex gap-1">
+                {captainId !== player.id && (
+                  <button onClick={() => setCaptainId(player.id)} className="text-xs text-ffc-gold border border-ffc-gold rounded px-1.5 py-0.5" type="button">C</button>
+                )}
+                <button onClick={() => handleRemoveFromSlot({ type: 'pitch', index: idx })} className="text-xs text-red-400 border border-red-800 rounded px-1.5 py-0.5" type="button">✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Bench */}
       <div className="bg-ffc-muted/30 rounded-2xl p-3 border border-ffc-muted mb-4">
         <div className="flex justify-between items-center mb-2">
           <h2 className="text-xs font-bold tracking-widest text-gray-400 uppercase">Bench</h2>
-          <span className="text-xs text-gray-400">{bench.length}/3</span>
+          <span className="text-xs text-gray-400">{benchFilled}/3</span>
         </div>
-        {bench.length === 0 ? (
-          <p className="text-gray-500 text-xs text-center py-4">Add up to 3 bench players</p>
-        ) : (
-          <div className="space-y-1.5">
-            {bench.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 bg-ffc-surface/60 rounded-lg px-3 py-2">
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${POSITION_COLORS[p.position]}`}>{p.position}</span>
-                <span className={`flex-1 text-sm ${p.status === 'left' ? 'text-red-400 line-through' : p.status === 'injured' ? 'text-yellow-300' : ''}`}>{p.name}</span>
-                {STATUS_BADGE[p.status] && (
-                  <span className={`text-xs px-1 rounded ${STATUS_BADGE[p.status].cls}`}>{STATUS_BADGE[p.status].label}</span>
-                )}
-                <div className="flex gap-1">
-                  <button onClick={() => moveToStart(p.id)} disabled={starters.length >= 11} className="text-xs text-blue-400 border border-blue-700 rounded px-1.5 py-0.5 disabled:opacity-30">→XI</button>
-                  <button onClick={() => removePlayer(p.id)} className="text-xs text-red-400 border border-red-800 rounded px-1.5 py-0.5">✕</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="space-y-1.5">
+          {bench.map((player, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-ffc-surface/60 rounded-lg px-3 py-2">
+              {player ? (
+                <>
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${POSITION_COLORS[player.position]}`}>{player.position}</span>
+                  <span className="flex-1 text-sm">{player.name}</span>
+                  <button onClick={() => handleRemoveFromSlot({ type: 'bench', index: idx })} className="text-xs text-red-400 border border-red-800 rounded px-1.5 py-0.5" type="button">✕</button>
+                </>
+              ) : (
+                <button onClick={() => openPickerForBench(idx)} className="flex-1 text-left text-sm text-gray-500" type="button">
+                  + Add bench player
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Save */}
@@ -232,70 +321,18 @@ export default function TransfersPage() {
         onClick={saveSquad}
         disabled={!windowOpen || saving}
         className="w-full bg-ffc-red hover:bg-red-700 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold py-3 rounded-xl mb-6 transition-colors"
+        type="button"
       >
         {saving ? 'Saving…' : !windowOpen ? '🔒 Window Closed' : 'Save Squad'}
       </button>
 
-      {/* Player picker */}
-      <div>
-        <h2 className="text-lg font-bold mb-3">All Players</h2>
-
-        {/* Filters */}
-        <input
-          type="text"
-          placeholder="Search by name…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-ffc-surface border border-ffc-muted rounded-xl px-4 py-2.5 text-white placeholder-gray-500 mb-3 focus:outline-none focus:border-ffc-gold text-sm"
-        />
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-          {['ALL', 'GK', 'DEF', 'MID', 'FWD'].map((pos) => (
-            <button
-              key={pos}
-              onClick={() => setPosFilter(pos)}
-              className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-colors ${posFilter === pos ? 'bg-ffc-gold text-black border-ffc-gold' : 'border-ffc-muted text-gray-300'}`}
-            >
-              {pos}
-            </button>
-          ))}
-          <div className="w-px bg-ffc-muted mx-1" />
-          {['ALL', 'active', 'injured', 'left'].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-colors ${statusFilter === s ? 'bg-white text-black border-white' : 'border-ffc-muted text-gray-300'}`}
-            >
-              {s === 'ALL' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          {filtered.map((player) => {
-            const alreadySelected = selectedIds.has(player.id)
-            const full = starters.length >= 11 && bench.length >= 3
-            return (
-              <div key={player.id} className={`flex items-center gap-3 bg-ffc-surface rounded-xl px-3 py-2.5 border ${alreadySelected ? 'border-ffc-pitch opacity-60' : 'border-ffc-muted'}`}>
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${POSITION_COLORS[player.position]}`}>{player.position}</span>
-                <span className={`flex-1 text-sm ${player.status === 'left' ? 'text-red-400 line-through' : player.status === 'injured' ? 'text-yellow-300' : ''}`}>{player.name}</span>
-                {STATUS_BADGE[player.status] && (
-                  <span className={`text-xs px-1 rounded ${STATUS_BADGE[player.status].cls}`}>{STATUS_BADGE[player.status].label}</span>
-                )}
-                <button
-                  onClick={() => addPlayer(player)}
-                  disabled={alreadySelected || player.status !== 'active' || full}
-                  className="shrink-0 text-xs bg-ffc-pitch hover:bg-ffc-pitch-light disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  {alreadySelected ? '✓' : player.status !== 'active' ? '—' : 'Add'}
-                </button>
-              </div>
-            )
-          })}
-          {filtered.length === 0 && (
-            <p className="text-gray-500 text-sm text-center py-8">No players match your filters</p>
-          )}
-        </div>
-      </div>
+      <PlayerPickerModal
+        open={pickerOpen}
+        onClose={() => { setPickerOpen(false); setPickerTarget(null) }}
+        players={eligiblePlayersForTarget()}
+        requiredPosition={requiredLineForPicker}
+        onPick={handlePick}
+      />
     </div>
   )
 }

@@ -14,7 +14,7 @@ create table if not exists profiles (
 
 alter table profiles enable row level security;
 create policy "Users can read all profiles" on profiles for select using (true);
-create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
+create policy "Users can update own profile" on profiles for update using (auth.uid() = id) with check (auth.uid() = id);
 create policy "Users can insert own profile" on profiles for insert with check (auth.uid() = id);
 
 
@@ -29,10 +29,12 @@ create table if not exists players (
 
 alter table players enable row level security;
 create policy "Anyone can read players" on players for select using (true);
-create policy "Admins can insert players" on players for insert using (
+create policy "Admins can insert players" on players for insert with check (
   exists (select 1 from profiles where id = auth.uid() and is_admin = true)
 );
 create policy "Admins can update players" on players for update using (
+  exists (select 1 from profiles where id = auth.uid() and is_admin = true)
+) with check (
   exists (select 1 from profiles where id = auth.uid() and is_admin = true)
 );
 create policy "Admins can delete players" on players for delete using (
@@ -47,15 +49,29 @@ create table if not exists squads (
   player_id uuid references players(id) on delete cascade not null,
   is_bench boolean default false,
   is_captain boolean default false,
+  slot_index integer,
   created_at timestamptz default now(),
   unique(user_id, player_id)
 );
 
 alter table squads enable row level security;
 create policy "Users can read all squads" on squads for select using (true);
-create policy "Users can manage own squad" on squads for insert with check (auth.uid() = user_id);
-create policy "Users can update own squad" on squads for update using (auth.uid() = user_id);
+create policy "Users can insert own squad" on squads for insert with check (auth.uid() = user_id);
+create policy "Users can update own squad" on squads for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "Users can delete own squad" on squads for delete using (auth.uid() = user_id);
+
+
+-- 3b. USER SETTINGS (stores chosen formation per user)
+create table if not exists user_settings (
+  user_id uuid references profiles(id) on delete cascade primary key,
+  formation text not null default '4-4-2',
+  updated_at timestamptz default now()
+);
+
+alter table user_settings enable row level security;
+create policy "Users can read all settings" on user_settings for select using (true);
+create policy "Users can insert own settings" on user_settings for insert with check (auth.uid() = user_id);
+create policy "Users can update own settings" on user_settings for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 
 -- 4. MATCHES
@@ -69,10 +85,12 @@ create table if not exists matches (
 
 alter table matches enable row level security;
 create policy "Anyone can read matches" on matches for select using (true);
-create policy "Admins can insert matches" on matches for insert using (
+create policy "Admins can insert matches" on matches for insert with check (
   exists (select 1 from profiles where id = auth.uid() and is_admin = true)
 );
 create policy "Admins can update matches" on matches for update using (
+  exists (select 1 from profiles where id = auth.uid() and is_admin = true)
+) with check (
   exists (select 1 from profiles where id = auth.uid() and is_admin = true)
 );
 create policy "Admins can delete matches" on matches for delete using (
@@ -96,10 +114,12 @@ create table if not exists player_match_stats (
 
 alter table player_match_stats enable row level security;
 create policy "Anyone can read stats" on player_match_stats for select using (true);
-create policy "Admins can insert stats" on player_match_stats for insert using (
+create policy "Admins can insert stats" on player_match_stats for insert with check (
   exists (select 1 from profiles where id = auth.uid() and is_admin = true)
 );
 create policy "Admins can update stats" on player_match_stats for update using (
+  exists (select 1 from profiles where id = auth.uid() and is_admin = true)
+) with check (
   exists (select 1 from profiles where id = auth.uid() and is_admin = true)
 );
 create policy "Admins can delete stats" on player_match_stats for delete using (
@@ -118,8 +138,7 @@ create table if not exists push_subscriptions (
 );
 
 alter table push_subscriptions enable row level security;
-create policy "Users can manage own subscriptions" on push_subscriptions for all using (auth.uid() = user_id);
--- Service role bypasses RLS for admin push sends
+create policy "Users can manage own subscriptions" on push_subscriptions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 
 -- ═══════════════════════════════════════════════════════════════
