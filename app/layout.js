@@ -1,6 +1,7 @@
 import './globals.css'
 import { AuthProvider } from '../components/AuthContext'
 import BottomNav from '../components/BottomNav'
+import TopHeader from '../components/TopHeader'
 import TransferBanner from '../components/TransferBanner'
 import PWAInstall from '../components/PWAInstall'
 
@@ -24,11 +25,13 @@ export default function RootLayout({ children }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="FFL" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body className="bg-ffc-dark text-white">
         <AuthProvider>
+          <TopHeader />
           <TransferBanner />
           <main className="pb-20 min-h-screen">
             {children}

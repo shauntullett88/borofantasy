@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { useAuth } from '../../components/AuthContext'
 
 export default function LoginPage() {
@@ -35,8 +36,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center px-4">
       {/* Logo */}
       <div className="text-center mb-8">
-        <div className="w-20 h-20 rounded-full bg-ffc-red flex items-center justify-center text-4xl mx-auto mb-3">
-          ⚽
+        <div className="w-24 h-24 mx-auto mb-3 relative">
+          <Image src="/badge.png" alt="Farnborough FC" fill className="object-contain" priority />
         </div>
         <h1 className="font-display text-3xl tracking-wider text-white">FARNBOROUGH</h1>
         <p className="text-ffc-gold font-semibold tracking-widest text-sm">FANTASY LEAGUE</p>
