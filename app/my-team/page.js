@@ -45,10 +45,20 @@ export default function MyTeamPage() {
     setHasSquad(true)
 
     const playerIds = squadData.map((s) => s.player_id)
+
     const { data: statsData } = await supabase
       .from('player_match_stats')
       .select('*')
       .in('player_id', playerIds)
+
+    // Fetch matches so we can look up result per match_id
+    const { data: matches } = await supabase
+      .from('matches')
+      .select('id, result')
+
+    // Build a match result lookup: matchId → result ('W'|'D'|'L'|null)
+    const matchResult = {}
+    for (const m of (matches || [])) matchResult[m.id] = m.result
 
     const pointsMap = {}
     for (const sq of squadData) {
@@ -56,10 +66,12 @@ export default function MyTeamPage() {
       const thisPlayerStats = statsData?.filter((s) => s.player_id === sq.player_id) || []
       let total = 0
       for (const stat of thisPlayerStats) {
-        total += calculatePoints(stat, sq.is_bench, player.position, sq.is_captain)
+        const result = matchResult[stat.match_id] || null
+        total += calculatePoints(stat, sq.is_bench, player.position, sq.is_captain, result)
       }
       pointsMap[sq.player_id] = total
     }
+
     setPointsByPlayer(pointsMap)
     setTotalPoints(Object.values(pointsMap).reduce((a, b) => a + b, 0))
 

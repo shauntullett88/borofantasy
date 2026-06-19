@@ -23,20 +23,26 @@ export default function LeaderboardPage() {
     async function fetchLeaderboard() {
       setFetching(true)
 
-      // Get all squads with player data
       const { data: squads } = await supabase
         .from('squads')
         .select('user_id, player_id, is_bench, is_captain, players(*)')
 
-      // Get all match stats
       const { data: allStats } = await supabase
         .from('player_match_stats')
         .select('*')
 
-      // Get all profiles
+      // Fetch matches so we can look up result per match_id
+      const { data: matches } = await supabase
+        .from('matches')
+        .select('id, result')
+
       const { data: profiles } = await supabase.from('profiles').select('id, username')
 
       if (!squads || !profiles) { setFetching(false); return }
+
+      // Build a match result lookup: matchId → result ('W'|'D'|'L'|null)
+      const matchResult = {}
+      for (const m of (matches || [])) matchResult[m.id] = m.result
 
       // Group squads by user
       const byUser = {}
@@ -45,7 +51,6 @@ export default function LeaderboardPage() {
         byUser[sq.user_id].push(sq)
       }
 
-      // Calculate points per user
       const leaderboard = profiles.map((profile) => {
         const userSquad = byUser[profile.id] || []
         let totalPoints = 0
@@ -54,7 +59,8 @@ export default function LeaderboardPage() {
           const player = sq.players
           const playerStats = allStats?.filter((s) => s.player_id === sq.player_id) || []
           for (const stat of playerStats) {
-            totalPoints += calculatePoints(stat, sq.is_bench, player?.position, sq.is_captain)
+            const result = matchResult[stat.match_id] || null
+            totalPoints += calculatePoints(stat, sq.is_bench, player?.position, sq.is_captain, result)
           }
         }
 
@@ -103,7 +109,6 @@ export default function LeaderboardPage() {
                     : 'bg-ffc-surface border-ffc-muted'
                 }`}
               >
-                {/* Rank */}
                 <div className="w-8 text-center">
                   {medal ? (
                     <span className="text-xl">{medal}</span>
@@ -112,7 +117,6 @@ export default function LeaderboardPage() {
                   )}
                 </div>
 
-                {/* Name */}
                 <div className="flex-1">
                   <span className={`font-semibold ${isTop ? 'text-ffc-gold' : isMe ? 'text-red-300' : 'text-white'}`}>
                     {entry.username}
@@ -120,7 +124,6 @@ export default function LeaderboardPage() {
                   {isMe && <span className="ml-2 text-xs text-gray-400">(you)</span>}
                 </div>
 
-                {/* Points */}
                 <div className="text-right">
                   <span className={`text-xl font-bold ${isTop ? 'text-ffc-gold' : 'text-white'}`}>
                     {entry.points}

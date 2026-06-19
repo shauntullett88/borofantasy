@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 
-const EMPTY_MATCH = { opponent: '', match_date: new Date().toISOString().split('T')[0], home: true }
+const EMPTY_MATCH = { opponent: '', match_date: new Date().toISOString().split('T')[0], home: true, result: null }
 
 const EMPTY_STAT = {
   appearance: false,
@@ -79,7 +79,7 @@ export default function AdminMatches() {
     setSaving(true)
     const { data } = await supabase
       .from('matches')
-      .insert({ opponent: matchForm.opponent.trim(), match_date: matchForm.match_date, home: matchForm.home })
+      .insert({ opponent: matchForm.opponent.trim(), match_date: matchForm.match_date, home: matchForm.home, result: matchForm.result || null })
       .select()
       .single()
     setSaving(false)
@@ -481,6 +481,35 @@ export default function AdminMatches() {
             Manual Stats — {selectedMatch.home ? 'vs' : '@'} {selectedMatch.opponent} ({new Date(selectedMatch.match_date).toLocaleDateString('en-GB')})
           </h2>
 
+          {/* Result picker for selected match */}
+          <div className="flex gap-2 mb-4 items-center">
+            <span className="text-xs text-gray-400">Result:</span>
+            {['W', 'D', 'L'].map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={async () => {
+                  const newResult = selectedMatch.result === r ? null : r
+                  await supabase.from('matches').update({ result: newResult }).eq('id', selectedMatch.id)
+                  setSelectedMatch({ ...selectedMatch, result: newResult })
+                }}
+                className={`text-xs font-bold px-3 py-1 rounded-lg border transition-colors ${
+                  selectedMatch.result === r
+                    ? r === 'W' ? 'bg-green-700 border-green-500 text-white'
+                      : r === 'D' ? 'bg-yellow-700 border-yellow-500 text-white'
+                      : 'bg-red-800 border-red-600 text-white'
+                    : 'border-ffc-muted text-gray-400'
+                }`}
+              >
+                {r === 'W' ? 'Win' : r === 'D' ? 'Draw' : 'Loss'}
+              </button>
+            ))}
+            {selectedMatch.result && (
+              <span className="text-xs text-gray-500 ml-1">
+                {selectedMatch.result === 'W' ? '+2 pts' : selectedMatch.result === 'D' ? '+1 pt' : '-1 pt'} per player
+              </span>
+            )}
+          </div>
           {positions.map((pos) => {
             const posPlayers = players.filter((p) => p.position === pos)
             if (posPlayers.length === 0) return null
