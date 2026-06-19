@@ -1,67 +1,53 @@
 // app/api/scrape-match/route.js
 //
-// Fetches recent @FarnboroughFC tweets from a public Nitter instance
+// Fetches recent @FarnboroughFC tweets via the official X API v2
 // and parses them for match stats. Returns a PREVIEW — does NOT write to DB.
 //
-// POST body: { matchId: string, matchDate: string, players: Player[] }
+// POST body: { players: Player[] }
 // Response:  { parsed: ParsedStats[], tweets: string[], warnings: string[] }
 
 import { NextResponse } from 'next/server'
 
-// Nitter instances to try in order (they go up and down)
-const NITTER_INSTANCES = [
-  'https://nitter.privacydev.net',
-  'https://nitter.poast.org',
-  'https://nitter.cz',
-]
+const TWITTER_BEARER_TOKEN = process.env.TWITTER_BEARER_TOKEN
+const FARNBOROUGH_USERNAME = 'FarnboroughFC'
 
-const FARNBOROUGH_HANDLE = 'FarnboroughFC'
+// ─── Fetch tweets from X API v2 ──────────────────────────────────────────────
 
-// ─── Fetch tweets from Nitter ────────────────────────────────────────────────
-
-async function fetchTweets(handle) {
-  let lastError = null
-
-  for (const instance of NITTER_INSTANCES) {
-    try {
-      const url = `${instance}/${handle}`
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FFL-Bot/1.0)' },
-        signal: AbortSignal.timeout(7000), // 7s — leaves headroom for Vercel 10s limit
-      })
-
-      if (!res.ok) continue
-
-      const html = await res.text()
-      return extractTweetsFromHTML(html)
-    } catch (err) {
-      lastError = err
-      continue
+async function fetchTweets() {
+  // Step 1: resolve username → user ID
+  const userRes = await fetch(
+    `https://api.twitter.com/2/users/by/username/${FARNBOROUGH_USERNAME}`,
+    {
+      headers: { Authorization: `Bearer ${TWITTER_BEARER_TOKEN}` },
+      signal: AbortSignal.timeout(8000),
     }
+  )
+
+  if (!userRes.ok) {
+    const err = await userRes.text()
+    throw new Error(`X API user lookup failed (${userRes.status}): ${err}`)
   }
 
-  throw new Error(`All Nitter instances failed. Last error: ${lastError?.message}`)
-}
+  const userData = await userRes.json()
+  const userId = userData?.data?.id
+  if (!userId) throw new Error('Could not resolve @FarnboroughFC user ID')
 
-function extractTweetsFromHTML(html) {
-  // Nitter renders tweets in <div class="tweet-content"> elements
-  const tweets = []
-  const regex = /<div class="tweet-content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi
-  let match
-  while ((match = regex.exec(html)) !== null) {
-    // Strip HTML tags and decode basic entities
-    const text = match[1]
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (text.length > 5) tweets.push(text)
+  // Step 2: fetch their recent tweets (up to 100, excluding retweets and replies)
+  const timelineRes = await fetch(
+    `https://api.twitter.com/2/users/${userId}/tweets?max_results=100&exclude=retweets,replies&tweet.fields=created_at,text`,
+    {
+      headers: { Authorization: `Bearer ${TWITTER_BEARER_TOKEN}` },
+      signal: AbortSignal.timeout(8000),
+    }
+  )
+
+  if (!timelineRes.ok) {
+    const err = await timelineRes.text()
+    throw new Error(`X API timeline fetch failed (${timelineRes.status}): ${err}`)
   }
-  return tweets
+
+  const timelineData = await timelineRes.json()
+  return (timelineData?.data || []).map((t) => t.text)
 }
 
 // ─── Fuzzy player name matching ──────────────────────────────────────────────
@@ -80,7 +66,6 @@ function matchPlayerName(tweetText, players) {
     const lastName = normaliseName(parts[parts.length - 1])
     const fullName = normaliseName(player.name)
 
-    // Match on full name, or surname alone (most common in tweets)
     if (
       normTweet.includes(fullName) ||
       normTweet.includes(lastName) ||
@@ -103,7 +88,6 @@ function parseLineup(tweets, players) {
   for (const tweet of tweets) {
     const lower = tweet.toLowerCase()
 
-    // Look for lineup tweets: "Starting XI", "Line up", "Team news", "Here's how we line up"
     const isLineupTweet =
       lower.includes('starting xi') ||
       lower.includes('starting lineup') ||
@@ -111,11 +95,13 @@ function parseLineup(tweets, players) {
       lower.includes('line-up') ||
       lower.includes('team news') ||
       lower.includes("here's how we line up") ||
-      lower.includes('tonight\'s starting')
+      lower.includes('tonight\'s starting') ||
+      lower.includes('this evening\'s starting') ||
+      lower.includes('this afternoon\'s starting')
 
     const isSubsTweet =
       lower.includes('substitute') ||
-      lower.includes('bench') ||
+      lower.includes('bench:') ||
       lower.includes('subs:')
 
     if (isLineupTweet && !isSubsTweet) {
@@ -125,7 +111,6 @@ function parseLineup(tweets, players) {
       const matched = matchPlayerName(tweet, players)
       for (const p of matched) subs.add(p.id)
     } else if (isLineupTweet) {
-      // Combined tweet — treat all as starters (common format)
       const matched = matchPlayerName(tweet, players)
       for (const p of matched) starters.add(p.id)
     }
@@ -139,19 +124,18 @@ function parseLineup(tweets, players) {
 }
 
 function parseGoals(tweets, players) {
-  const goals = {} // playerId → count
+  const goals = {}
   const warnings = []
 
   for (const tweet of tweets) {
     const lower = tweet.toLowerCase()
 
-    // Goal indicators
     const isGoalTweet =
       lower.includes('goal') ||
       lower.includes('⚽') ||
       lower.includes('scores') ||
-      lower.includes('1-0') || lower.includes('2-0') || lower.includes('2-1') ||
-      lower.includes('3-0') || lower.includes('3-1') || lower.includes('3-2') ||
+      lower.includes('we\'re ahead') ||
+      lower.includes('we lead') ||
       /\d-\d/.test(lower)
 
     if (isGoalTweet) {
@@ -168,12 +152,16 @@ function parseGoals(tweets, players) {
 }
 
 function parseAssists(tweets, players) {
-  const assists = {} // playerId → count
+  const assists = {}
   const warnings = []
 
   for (const tweet of tweets) {
     const lower = tweet.toLowerCase()
-    const isAssistTweet = lower.includes('assist') || lower.includes('set up by') || lower.includes('laid on by')
+    const isAssistTweet =
+      lower.includes('assist') ||
+      lower.includes('set up by') ||
+      lower.includes('laid on by') ||
+      lower.includes('teed up')
 
     if (isAssistTweet) {
       const matched = matchPlayerName(tweet, players)
@@ -205,7 +193,7 @@ function parseBookings(tweets, players) {
         else yellowCards.add(matched[0].id)
       } else if (matched.length > 1) {
         warnings.push(`Ambiguous card tweet (multiple players matched): "${tweet.slice(0, 80)}…"`)
-      } else if (matched.length === 0) {
+      } else {
         warnings.push(`Card tweet found but no player matched: "${tweet.slice(0, 80)}…"`)
       }
     }
@@ -219,14 +207,10 @@ function parseCleanSheet(tweets) {
     const lower = tweet.toLowerCase()
     if (lower.includes('clean sheet') || lower.includes('clean-sheet')) return true
 
-    // Infer from final score — if FFC kept a clean sheet the score ends in " 0" or "-0"
-    // e.g. "FT: Farnborough 2-0" or "Full time: 1-0"
+    // Try to infer from FT score — look for a 0 on the opponent side
+    // Farnborough tweets tend to be "FT: Farnborough 2-0 Opponent"
     const ftMatch = tweet.match(/(?:ft|full.?time)[^\d]*(\d+)[^\d]+(\d+)/i)
-    if (ftMatch) {
-      // We don't know which number is ours vs opponent without more context,
-      // so flag it as uncertain and let the admin decide
-      return null // null = uncertain
-    }
+    if (ftMatch) return null // uncertain — let admin decide
   }
   return false
 }
@@ -235,25 +219,26 @@ function parseCleanSheet(tweets) {
 
 export async function POST(request) {
   try {
-    const { players } = await request.json()
+    if (!TWITTER_BEARER_TOKEN) {
+      return NextResponse.json({ error: 'TWITTER_BEARER_TOKEN env var is not set' }, { status: 500 })
+    }
 
+    const { players } = await request.json()
     if (!players?.length) {
       return NextResponse.json({ error: 'players array is required' }, { status: 400 })
     }
 
-    // Fetch tweets
     let tweets
     try {
-      tweets = await fetchTweets(FARNBOROUGH_HANDLE)
+      tweets = await fetchTweets()
     } catch (err) {
       return NextResponse.json({ error: err.message }, { status: 502 })
     }
 
     if (!tweets.length) {
-      return NextResponse.json({ error: 'No tweets found — Nitter may be down. Try again or enter stats manually.' }, { status: 502 })
+      return NextResponse.json({ error: 'No tweets returned from X API.' }, { status: 502 })
     }
 
-    // Parse everything
     const { starters, subs, warnings: lineupWarnings } = parseLineup(tweets, players)
     const { goals, warnings: goalWarnings } = parseGoals(tweets, players)
     const { assists, warnings: assistWarnings } = parseAssists(tweets, players)
@@ -262,7 +247,6 @@ export async function POST(request) {
 
     const allWarnings = [...lineupWarnings, ...goalWarnings, ...assistWarnings, ...cardWarnings]
 
-    // Build per-player parsed stats
     const parsed = players.map((player) => {
       const isStarter = starters.has(player.id)
       const isSub = subs.has(player.id)
@@ -275,7 +259,7 @@ export async function POST(request) {
         started: isStarter,
         sub_on: isSub,
         appearance: isStarter || isSub,
-        played90: isStarter && !isSub, // rough heuristic — admin can correct
+        played90: isStarter && !isSub,
         goals: goals[player.id] || 0,
         assists: assists[player.id] || 0,
         clean_sheet: isGkOrDef ? (cleanSheet === true) : false,
@@ -286,7 +270,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       parsed,
-      tweets: tweets.slice(0, 30), // return tweets so admin can review
+      tweets: tweets.slice(0, 50),
       warnings: allWarnings,
       cleanSheetUncertain: cleanSheet === null,
     })
