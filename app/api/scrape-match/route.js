@@ -15,7 +15,7 @@ const FARNBOROUGH_USERNAME = 'FarnboroughFC'
 
 // ─── Fetch tweets + media from X API v2 ──────────────────────────────────────
 
-async function fetchTweets() {
+async function fetchTweets(matchDate) {
   // Step 1: resolve username → user ID
   const userRes = await fetch(
     `https://api.twitter.com/2/users/by/username/${FARNBOROUGH_USERNAME}`,
@@ -33,13 +33,22 @@ async function fetchTweets() {
   if (!userId) throw new Error('Could not resolve @FarnboroughFC user ID')
 
   // Step 2: fetch recent tweets including media fields
+  // Build date filter if matchDate provided — fetch only tweets from that day (UTC)
+  let dateParams = ''
+  if (matchDate) {
+    const start = new Date(`${matchDate}T00:00:00Z`).toISOString()
+    const end   = new Date(`${matchDate}T23:59:59Z`).toISOString()
+    dateParams = `&start_time=${start}&end_time=${end}`
+  }
+
   const timelineRes = await fetch(
     `https://api.twitter.com/2/users/${userId}/tweets` +
     `?max_results=100` +
     `&exclude=retweets,replies` +
     `&tweet.fields=created_at,text,attachments` +
     `&expansions=attachments.media_keys` +
-    `&media.fields=url,preview_image_url,type`,
+    `&media.fields=url,preview_image_url,type` +
+    dateParams,
     {
       headers: { Authorization: `Bearer ${TWITTER_BEARER_TOKEN}` },
       signal: AbortSignal.timeout(8000),
@@ -329,14 +338,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY env var is not set' }, { status: 500 })
     }
 
-    const { players } = await request.json()
+    const { players, matchDate } = await request.json()
     if (!players?.length) {
       return NextResponse.json({ error: 'players array is required' }, { status: 400 })
     }
 
     let tweets
     try {
-      tweets = await fetchTweets()
+      tweets = await fetchTweets(matchDate)
     } catch (err) {
       return NextResponse.json({ error: err.message }, { status: 502 })
     }

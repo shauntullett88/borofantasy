@@ -109,7 +109,7 @@ export default function AdminMatches() {
       const res = await fetch('/api/scrape-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ players }),
+        body: JSON.stringify({ players, matchDate: selectedMatch.match_date }),
       })
       const data = await res.json()
 
