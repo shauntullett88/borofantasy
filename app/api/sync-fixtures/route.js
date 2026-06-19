@@ -44,31 +44,54 @@ export async function POST(request) {
     const from = body.from || new Date().toISOString().split('T')[0] + 'T00:00:00Z'
     const to   = body.to   || '2026-05-31T23:59:59Z'
 
-    const data = await fetchFixtures(from, to)
+    const raw = await fetchFixtures(from, to)
     const db = supabaseAdmin()
 
-    // data is an array of tournament groups, each with a matches array
+    // Handle various response shapes:
+    // - array of tournament groups (expected)
+    // - { data: [...] }
+    // - { matches: [...] }
+    // - single object with matches
+    // The NL API returns { data: [ {type, id, attributes}, ... ], meta, links }
+    // Each item in data has attributes containing the match info
+    const matchItems = Array.isArray(raw) ? raw
+      : Array.isArray(raw?.data) ? raw.data
+      : []
+
     const rows = []
-    for (const group of (data || [])) {
-      for (const match of (group.matches || [])) {
-        const isFarnboroughHome = match.home_team?.team_id === FARNBOROUGH_TEAM_ID
-        const isFarnboroughAway = match.away_team?.team_id === FARNBOROUGH_TEAM_ID
-        if (!isFarnboroughHome && !isFarnboroughAway) continue
+    for (const item of matchItems) {
+      // Support both flat match objects and nested attributes
+      const match = item?.attributes || item
 
-        const opponent = isFarnboroughHome
-          ? match.away_team?.name
-          : match.home_team?.name
+      const homeTeamId = match.homeTeamID || match.home_team?.team_id
+      const awayTeamId = match.awayTeamID || match.away_team?.team_id
+      const isFarnboroughHome = homeTeamId === FARNBOROUGH_TEAM_ID
+      const isFarnboroughAway = awayTeamId === FARNBOROUGH_TEAM_ID
+      if (!isFarnboroughHome && !isFarnboroughAway) continue
 
-        const matchDate = new Date(match.timestamp * 1000).toISOString().split('T')[0]
+      const opponent = isFarnboroughHome
+        ? (match.awayTeam?.teamName || match.away_team?.name)
+        : (match.homeTeam?.teamName || match.home_team?.name)
 
-        rows.push({
-          nl_match_id: match.match_id,
-          opponent: opponent,
-          match_date: matchDate,
-          home: isFarnboroughHome,
-          result: null, // will be filled in after match
-        })
+      // kickOffUTC is "2026-04-25 11:30:00" or timestamp in seconds
+      let matchDate
+      if (match.kickOffUTC) {
+        matchDate = match.kickOffUTC.split(' ')[0]
+      } else if (match.timestamp) {
+        matchDate = new Date(match.timestamp * 1000).toISOString().split('T')[0]
+      } else {
+        continue
       }
+
+      const nlMatchId = match.matchID || item.id || match.match_id
+
+      rows.push({
+        nl_match_id: nlMatchId,
+        opponent: opponent,
+        match_date: matchDate,
+        home: isFarnboroughHome,
+        result: null,
+      })
     }
 
     if (rows.length === 0) {
