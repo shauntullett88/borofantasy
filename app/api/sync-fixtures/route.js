@@ -14,7 +14,7 @@ import { supabaseAdmin } from '../../../lib/supabase'
 const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
 const FARNBOROUGH_TEAM_ID = 't1044'
 const COMPETITION_ID = 372
-const SEASON_ID = 2025
+const SEASON_ID = 2025 // NL uses the season start year
 
 async function fetchFixtures(from, to) {
   const params = new URLSearchParams({
@@ -40,9 +40,10 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}))
 
-    // Default: sync from today to end of season
-    const from = body.from || new Date().toISOString().split('T')[0] + 'T00:00:00Z'
-    const to   = body.to   || '2026-05-31T23:59:59Z'
+    // Default: sync the full 2025/26 season (August 2025 → May 2026)
+    // plus upcoming 2026/27 fixtures
+    const from = body.from || '2025-08-01T00:00:00Z'
+    const to   = body.to   || '2027-05-31T23:59:59Z'
 
     const raw = await fetchFixtures(from, to)
     const db = supabaseAdmin()
@@ -57,6 +58,18 @@ export async function POST(request) {
     const matchItems = Array.isArray(raw) ? raw
       : Array.isArray(raw?.data) ? raw.data
       : []
+
+    // Debug: log first item shape to Vercel logs
+    if (matchItems.length > 0) {
+      const sample = matchItems[0]
+      const attrs = sample?.attributes || sample
+      console.log('NL API sample item keys:', Object.keys(attrs || {}))
+      console.log('NL API homeTeamID:', attrs?.homeTeamID, 'awayTeamID:', attrs?.awayTeamID)
+      console.log('NL API homeTeam:', JSON.stringify(attrs?.homeTeam)?.slice(0, 100))
+    } else {
+      console.log('NL API returned 0 items. Raw keys:', Object.keys(raw || {}))
+      console.log('Raw sample:', JSON.stringify(raw).slice(0, 500))
+    }
 
     const rows = []
     for (const item of matchItems) {
