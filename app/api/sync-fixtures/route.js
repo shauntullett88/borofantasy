@@ -16,7 +16,7 @@ const FARNBOROUGH_TEAM_ID = 't1044'
 const COMPETITION_ID = 372
 const SEASON_ID = 2025 // NL uses the season start year
 
-async function fetchFixtures(from, to) {
+async function fetchFixtures(from, to, page = 1, pageSize = 100) {
   const params = new URLSearchParams({
     seasonID: SEASON_ID,
     competitionID: COMPETITION_ID,
@@ -46,7 +46,7 @@ export async function POST(request) {
     const page = body.page || 1
     const pageSize = body.pageSize || 100
 
-    const raw = await fetchFixtures(from, to)
+    const raw = await fetchFixtures(from, to, page, pageSize)
     const db = supabaseAdmin()
 
     // Handle various response shapes:
