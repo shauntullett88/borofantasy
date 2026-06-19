@@ -438,17 +438,40 @@ export default function AdminMatches() {
                   ))}
               </div>
 
-              {/* Show raw tweets toggle */}
+              {/* Tweet log */}
               <button
                 onClick={() => setShowTweets((v) => !v)}
                 className="text-xs text-gray-500 underline"
               >
-                {showTweets ? 'Hide' : 'Show'} raw tweets ({scrapePreview.tweets?.length})
+                {showTweets ? 'Hide' : 'Show'} tweet log ({scrapePreview.tweetLog?.length})
               </button>
               {showTweets && (
-                <div className="bg-ffc-dark rounded-xl p-3 space-y-1 max-h-48 overflow-y-auto">
-                  {scrapePreview.tweets?.map((t, i) => (
-                    <p key={i} className="text-xs text-gray-400 border-b border-ffc-muted/30 pb-1">{t}</p>
+                <div className="bg-ffc-dark rounded-xl p-3 space-y-2 max-h-64 overflow-y-auto">
+                  {scrapePreview.tweetLog?.filter(t => t.detectedEvent).map((t, i) => (
+                    <div key={i} className="border-b border-ffc-muted/30 pb-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                          t.detectedEvent === 'goal' ? 'bg-green-800 text-green-300' :
+                          t.detectedEvent === 'yellow_card' ? 'bg-yellow-800 text-yellow-300' :
+                          t.detectedEvent === 'red_card' ? 'bg-red-900 text-red-300' :
+                          t.detectedEvent === 'assist' ? 'bg-blue-900 text-blue-300' :
+                          'bg-gray-800 text-gray-400'
+                        }`}>
+                          {t.detectedEvent === 'goal' ? '⚽ Goal' :
+                           t.detectedEvent === 'yellow_card' ? '🟨 Yellow' :
+                           t.detectedEvent === 'red_card' ? '🟥 Red' :
+                           t.detectedEvent === 'assist' ? '👟 Assist' :
+                           t.detectedEvent}
+                        </span>
+                        {t.resolvedPlayer && (
+                          <span className="text-xs text-white font-semibold">{t.resolvedPlayer}</span>
+                        )}
+                        {t.imageUrls?.length > 0 && (
+                          <span className="text-xs text-sky-400">📷 vision used</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">{t.text.slice(0, 100)}</p>
+                    </div>
                   ))}
                 </div>
               )}
