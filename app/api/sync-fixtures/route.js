@@ -76,27 +76,30 @@ export async function POST(request) {
       // Support both flat match objects and nested attributes
       const match = item?.attributes || item
 
-      const homeTeamId = match.homeTeamID || match.home_team?.team_id
-      const awayTeamId = match.awayTeamID || match.away_team?.team_id
+      // Teams are nested as homeTeam.teamID / awayTeam.teamID
+      const homeTeamId = match.homeTeam?.teamID || match.homeTeamID
+      const awayTeamId = match.awayTeam?.teamID || match.awayTeamID
       const isFarnboroughHome = homeTeamId === FARNBOROUGH_TEAM_ID
       const isFarnboroughAway = awayTeamId === FARNBOROUGH_TEAM_ID
       if (!isFarnboroughHome && !isFarnboroughAway) continue
 
       const opponent = isFarnboroughHome
-        ? (match.awayTeam?.teamName || match.away_team?.name)
-        : (match.homeTeam?.teamName || match.home_team?.name)
+        ? (match.awayTeam?.teamName || match.awayTeam?.name)
+        : (match.homeTeam?.teamName || match.homeTeam?.name)
 
-      // kickOffUTC is "2026-04-25 11:30:00" or timestamp in seconds
+      // Date field is kickOffDateUTC e.g. "2026-04-25T11:30:00Z" or "2026-04-25 11:30:00"
       let matchDate
-      if (match.kickOffUTC) {
-        matchDate = match.kickOffUTC.split(' ')[0]
+      if (match.kickOffDateUTC) {
+        matchDate = match.kickOffDateUTC.split('T')[0].split(' ')[0]
+      } else if (match.kickOffUTC) {
+        matchDate = match.kickOffUTC.split('T')[0].split(' ')[0]
       } else if (match.timestamp) {
         matchDate = new Date(match.timestamp * 1000).toISOString().split('T')[0]
       } else {
         continue
       }
 
-      const nlMatchId = match.matchID || item.id || match.match_id
+      const nlMatchId = item.id || match.matchID || match.match_id
 
       rows.push({
         nl_match_id: nlMatchId,
