@@ -23,8 +23,8 @@ async function fetchFixtures(from, to) {
     includePopulatedDates: 'true',
     from: from,
     to: to,
-    'page.number': '1',
-    'page.size': '50',
+    'page.number': String(page),
+    'page.size': String(pageSize),
   })
 
   const res = await fetch(`${NL_API_BASE}/matches/?${params}`, {
@@ -40,10 +40,11 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}))
 
-    // Default: sync the full 2025/26 season (August 2025 → May 2026)
-    // plus upcoming 2026/27 fixtures
+    // Default: sync full 2025/26 season + upcoming 2026/27 fixtures
     const from = body.from || '2025-08-01T00:00:00Z'
     const to   = body.to   || '2027-05-31T23:59:59Z'
+    const page = body.page || 1
+    const pageSize = body.pageSize || 100
 
     const raw = await fetchFixtures(from, to)
     const db = supabaseAdmin()

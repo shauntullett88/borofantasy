@@ -1,0 +1,120 @@
+// app/api/sync-squad/route.js
+//
+// Aggregates all Farnborough players from synced match data and upserts
+// them into the players table. Deduplicates by nl_player_id.
+//
+// POST body: {} (no params needed)
+// Response:  { upserted: number, players: PlayerRow[] }
+
+export const dynamic = 'force-dynamic'
+
+import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '../../../lib/supabase'
+
+const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
+const FARNBOROUGH_TEAM_ID = 't1044'
+
+function mapPosition(nlPosition, nlSubPosition) {
+  const pos = (nlSubPosition || nlPosition || '').toLowerCase()
+  if (pos === 'goalkeeper') return 'GK'
+  if (pos === 'defender') return 'DEF'
+  if (pos === 'midfielder') return 'MID'
+  if (pos === 'striker' || pos === 'forward') return 'FWD'
+  // Fall back to main position
+  const main = (nlPosition || '').toLowerCase()
+  if (main === 'goalkeeper') return 'GK'
+  if (main === 'defender') return 'DEF'
+  if (main === 'midfielder') return 'MID'
+  if (main === 'striker' || main === 'forward') return 'FWD'
+  if (main === 'substitute') {
+    // Use sub position
+    if (pos.includes('goal')) return 'GK'
+    if (pos.includes('defend')) return 'DEF'
+    if (pos.includes('mid')) return 'MID'
+    if (pos.includes('forward') || pos.includes('striker')) return 'FWD'
+  }
+  return 'MID' // safe default
+}
+
+export async function POST(request) {
+  try {
+    const db = supabaseAdmin()
+
+    // Get all matches with nl_match_id
+    const { data: matches, error: matchErr } = await db
+      .from('matches')
+      .select('id, nl_match_id')
+      .not('nl_match_id', 'is', null)
+
+    if (matchErr) throw new Error(matchErr.message)
+    if (!matches?.length) {
+      return NextResponse.json({ error: 'No synced matches found — sync fixtures first' }, { status: 400 })
+    }
+
+    // Aggregate players across all matches
+    const playerMap = {} // nl_player_id → player data
+
+    for (const match of matches) {
+      try {
+        const res = await fetch(`${NL_API_BASE}/matches/${match.nl_match_id}`, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!res.ok) continue
+
+        const json = await res.json()
+        const attrs = json?.data?.attributes || json?.attributes || json
+
+        // Find Farnborough team
+        const farnTeam = (attrs?.matchTeams || []).find(
+          (t) => t.teamID === FARNBOROUGH_TEAM_ID
+        )
+        if (!farnTeam) continue
+
+        // Process starters and subs
+        const allPlayers = [
+          ...(farnTeam.players?.Start || []),
+          ...(farnTeam.players?.Sub || []),
+        ]
+
+        for (const p of allPlayers) {
+          const { playerID, playerName, playerPosition, playerSubPosition } = p
+          if (!playerID || !playerName) continue
+
+          const fullName = `${playerName.firstName} ${playerName.lastName}`.trim()
+          const position = mapPosition(playerPosition, playerSubPosition)
+
+          // Keep the most informative position seen (prefer non-Substitute)
+          if (!playerMap[playerID] || playerPosition !== 'Substitute') {
+            playerMap[playerID] = {
+              nl_player_id: playerID,
+              name: fullName,
+              position,
+              status: 'active',
+            }
+          }
+        }
+      } catch {
+        continue // skip failed match fetches
+      }
+    }
+
+    const players = Object.values(playerMap)
+
+    if (players.length === 0) {
+      return NextResponse.json({ error: 'No players found in match data' }, { status: 400 })
+    }
+
+    // Upsert players — on conflict of nl_player_id, update name and position
+    const { error } = await db
+      .from('players')
+      .upsert(players, { onConflict: 'nl_player_id' })
+
+    if (error) throw new Error(error.message)
+
+    return NextResponse.json({ upserted: players.length, players })
+  } catch (err) {
+    console.error('sync-squad error:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
