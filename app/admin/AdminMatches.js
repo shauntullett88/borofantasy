@@ -24,6 +24,7 @@ export default function AdminMatches() {
   // Sync state
   const [syncingFixtures, setSyncingFixtures] = useState(false)
   const [syncingStats, setSyncingStats] = useState(false)
+  const [syncingAll, setSyncingAll] = useState(false)
   const [syncWarnings, setSyncWarnings] = useState([])
 
   function showMsg(text, type = 'success') {
@@ -122,6 +123,32 @@ export default function AdminMatches() {
     }
   }
 
+  // ── Sync All Stats ────────────────────────────────────────────────────────
+
+  async function syncAllStats() {
+    setSyncingAll(true)
+    setSyncWarnings([])
+    try {
+      const res = await fetch('/api/sync-all-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showMsg(`❌ Sync failed: ${data.error}`, 'error')
+      } else {
+        setSyncWarnings(data.warnings || [])
+        await fetchMatches()
+        showMsg(`✅ ${data.synced} matches synced, ${data.skipped} skipped (no lineup data)`)
+      }
+    } catch (err) {
+      showMsg(`❌ Network error: ${err.message}`, 'error')
+    } finally {
+      setSyncingAll(false)
+    }
+  }
+
   // ── Create match manually ──────────────────────────────────────────────────
 
   async function createMatch() {
@@ -198,13 +225,22 @@ export default function AdminMatches() {
             <h2 className="text-sm font-bold text-gray-300">National League Fixtures</h2>
             <p className="text-xs text-gray-500 mt-0.5">Auto-import upcoming fixtures</p>
           </div>
-          <button
-            onClick={syncFixtures}
-            disabled={syncingFixtures}
-            className="text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-lg px-3 py-2"
-          >
-            {syncingFixtures ? '⏳ Syncing…' : '📅 Sync Fixtures'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={syncFixtures}
+              disabled={syncingFixtures || syncingAll}
+              className="text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-lg px-3 py-2"
+            >
+              {syncingFixtures ? '⏳ Syncing…' : '📅 Sync Fixtures'}
+            </button>
+            <button
+              onClick={syncAllStats}
+              disabled={syncingAll || syncingFixtures}
+              className="text-xs bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white font-bold rounded-lg px-3 py-2"
+            >
+              {syncingAll ? '⏳ Syncing…' : '⚡ Sync All Stats'}
+            </button>
+          </div>
         </div>
       </div>
 
