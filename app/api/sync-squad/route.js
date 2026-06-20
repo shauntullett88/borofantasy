@@ -63,19 +63,31 @@ export async function POST(request) {
         if (!res.ok) continue
 
         const json = await res.json()
+
+        // Handle { data: { attributes: {...} } } or flat response
         const attrs = json?.data?.attributes || json?.attributes || json
 
+        // matchTeams can be at attrs level or nested further
+        const matchTeams = attrs?.matchTeams || []
+
         // Find Farnborough team
-        const farnTeam = (attrs?.matchTeams || []).find(
+        const farnTeam = matchTeams.find(
           (t) => t.teamID === FARNBOROUGH_TEAM_ID
         )
-        if (!farnTeam) continue
+
+        if (!farnTeam) {
+          console.log(`Match ${match.nl_match_id}: no Farnborough team found. Keys:`, Object.keys(attrs || {}))
+          continue
+        }
 
         // Process starters and subs
-        const allPlayers = [
-          ...(farnTeam.players?.Start || []),
-          ...(farnTeam.players?.Sub || []),
-        ]
+        const startPlayers = Array.isArray(farnTeam.players?.Start) ? farnTeam.players.Start
+          : Array.isArray(farnTeam.players) ? farnTeam.players.filter(p => p.playerStatus === 'Start')
+          : []
+        const subPlayers = Array.isArray(farnTeam.players?.Sub) ? farnTeam.players.Sub
+          : Array.isArray(farnTeam.players) ? farnTeam.players.filter(p => p.playerStatus === 'Sub')
+          : []
+        const allPlayers = [...startPlayers, ...subPlayers]
 
         for (const p of allPlayers) {
           const { playerID, playerName, playerPosition, playerSubPosition } = p

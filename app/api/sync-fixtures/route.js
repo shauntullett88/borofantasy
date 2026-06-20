@@ -1,10 +1,10 @@
-// app/api/sync-squad/route.js
+// app/api/sync-fixtures/route.js
 //
-// Aggregates all Farnborough players from synced match data and upserts
-// them into the players table. Deduplicates by nl_player_id.
+// Fetches upcoming Farnborough fixtures from the official National League
+// services API and upserts them into the matches table.
 //
-// POST body: {} (no params needed)
-// Response:  { upserted: number, players: PlayerRow[] }
+// POST body: { from?: string, to?: string }  (ISO date strings, optional)
+// Response:  { upserted: number, fixtures: MatchRow[] }
 
 export const dynamic = 'force-dynamic'
 
@@ -13,120 +13,118 @@ import { supabaseAdmin } from '../../../lib/supabase'
 
 const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
 const FARNBOROUGH_TEAM_ID = 't1044'
+const COMPETITION_ID = 372
+const SEASON_ID = 2025 // NL uses the season start year
 
-function mapPosition(nlPosition, nlSubPosition) {
-  const pos = (nlSubPosition || nlPosition || '').toLowerCase()
-  if (pos === 'goalkeeper') return 'GK'
-  if (pos === 'defender') return 'DEF'
-  if (pos === 'midfielder') return 'MID'
-  if (pos === 'striker' || pos === 'forward') return 'FWD'
-  // Fall back to main position
-  const main = (nlPosition || '').toLowerCase()
-  if (main === 'goalkeeper') return 'GK'
-  if (main === 'defender') return 'DEF'
-  if (main === 'midfielder') return 'MID'
-  if (main === 'striker' || main === 'forward') return 'FWD'
-  if (main === 'substitute') {
-    // Use sub position
-    if (pos.includes('goal')) return 'GK'
-    if (pos.includes('defend')) return 'DEF'
-    if (pos.includes('mid')) return 'MID'
-    if (pos.includes('forward') || pos.includes('striker')) return 'FWD'
-  }
-  return 'MID' // safe default
+async function fetchFixtures(from, to, page = 1, pageSize = 100) {
+  const params = new URLSearchParams({
+    seasonID: SEASON_ID,
+    competitionID: COMPETITION_ID,
+    includePopulatedDates: 'true',
+    from: from,
+    to: to,
+    'page.number': String(page),
+    'page.size': String(pageSize),
+  })
+
+  const res = await fetch(`${NL_API_BASE}/matches/?${params}`, {
+    headers: { 'Accept': 'application/json' },
+    signal: AbortSignal.timeout(8000),
+  })
+
+  if (!res.ok) throw new Error(`NL API fixtures failed (${res.status})`)
+  return res.json()
 }
 
 export async function POST(request) {
   try {
+    const body = await request.json().catch(() => ({}))
+
+    // Default: sync full 2025/26 season + upcoming 2026/27 fixtures
+    const from = body.from || '2025-08-01T00:00:00Z'
+    const to   = body.to   || '2027-05-31T23:59:59Z'
+    const page = body.page || 1
+    const pageSize = body.pageSize || 100
+
+    const raw = await fetchFixtures(from, to, page, pageSize)
     const db = supabaseAdmin()
 
-    // Get all matches with nl_match_id
-    const { data: matches, error: matchErr } = await db
-      .from('matches')
-      .select('id, nl_match_id')
-      .not('nl_match_id', 'is', null)
+    // Handle various response shapes:
+    // - array of tournament groups (expected)
+    // - { data: [...] }
+    // - { matches: [...] }
+    // - single object with matches
+    // The NL API returns { data: [ {type, id, attributes}, ... ], meta, links }
+    // Each item in data has attributes containing the match info
+    const matchItems = Array.isArray(raw) ? raw
+      : Array.isArray(raw?.data) ? raw.data
+      : []
 
-    if (matchErr) throw new Error(matchErr.message)
-    if (!matches?.length) {
-      return NextResponse.json({ error: 'No synced matches found — sync fixtures first' }, { status: 400 })
+    // Debug: log first item shape to Vercel logs
+    if (matchItems.length > 0) {
+      const sample = matchItems[0]
+      const attrs = sample?.attributes || sample
+      console.log('NL API sample item keys:', Object.keys(attrs || {}))
+      console.log('NL API homeTeamID:', attrs?.homeTeamID, 'awayTeamID:', attrs?.awayTeamID)
+      console.log('NL API homeTeam:', JSON.stringify(attrs?.homeTeam)?.slice(0, 100))
+    } else {
+      console.log('NL API returned 0 items. Raw keys:', Object.keys(raw || {}))
+      console.log('Raw sample:', JSON.stringify(raw).slice(0, 500))
     }
 
-    // Aggregate players across all matches
-    const playerMap = {} // nl_player_id → player data
+    const rows = []
+    for (const item of matchItems) {
+      // Support both flat match objects and nested attributes
+      const match = item?.attributes || item
 
-    for (const match of matches) {
-      try {
-        const res = await fetch(`${NL_API_BASE}/matches/${match.nl_match_id}`, {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(8000),
-        })
-        if (!res.ok) continue
+      // Teams are nested as homeTeam.teamID / awayTeam.teamID
+      const homeTeamId = match.homeTeam?.teamID || match.homeTeamID
+      const awayTeamId = match.awayTeam?.teamID || match.awayTeamID
+      const isFarnboroughHome = homeTeamId === FARNBOROUGH_TEAM_ID
+      const isFarnboroughAway = awayTeamId === FARNBOROUGH_TEAM_ID
+      if (!isFarnboroughHome && !isFarnboroughAway) continue
 
-        const json = await res.json()
+      const opponent = isFarnboroughHome
+        ? (match.awayTeam?.teamName || match.awayTeam?.name)
+        : (match.homeTeam?.teamName || match.homeTeam?.name)
 
-        // Handle { data: { attributes: {...} } } or flat response
-        const attrs = json?.data?.attributes || json?.attributes || json
-
-        // matchTeams can be at attrs level or nested further
-        const matchTeams = attrs?.matchTeams || []
-
-        // Find Farnborough team
-        const farnTeam = matchTeams.find(
-          (t) => t.teamID === FARNBOROUGH_TEAM_ID
-        )
-
-        if (!farnTeam) {
-          console.log(`Match ${match.nl_match_id}: no Farnborough team found. Keys:`, Object.keys(attrs || {}))
-          continue
-        }
-
-        // Process starters and subs
-        const startPlayers = Array.isArray(farnTeam.players?.Start) ? farnTeam.players.Start
-          : Array.isArray(farnTeam.players) ? farnTeam.players.filter(p => p.playerStatus === 'Start')
-          : []
-        const subPlayers = Array.isArray(farnTeam.players?.Sub) ? farnTeam.players.Sub
-          : Array.isArray(farnTeam.players) ? farnTeam.players.filter(p => p.playerStatus === 'Sub')
-          : []
-        const allPlayers = [...startPlayers, ...subPlayers]
-
-        for (const p of allPlayers) {
-          const { playerID, playerName, playerPosition, playerSubPosition } = p
-          if (!playerID || !playerName) continue
-
-          const fullName = `${playerName.firstName} ${playerName.lastName}`.trim()
-          const position = mapPosition(playerPosition, playerSubPosition)
-
-          // Keep the most informative position seen (prefer non-Substitute)
-          if (!playerMap[playerID] || playerPosition !== 'Substitute') {
-            playerMap[playerID] = {
-              nl_player_id: playerID,
-              name: fullName,
-              position,
-              status: 'active',
-            }
-          }
-        }
-      } catch {
-        continue // skip failed match fetches
+      // Date field is kickOffDateUTC e.g. "2026-04-25T11:30:00Z" or "2026-04-25 11:30:00"
+      let matchDate
+      if (match.kickOffDateUTC) {
+        matchDate = match.kickOffDateUTC.split('T')[0].split(' ')[0]
+      } else if (match.kickOffUTC) {
+        matchDate = match.kickOffUTC.split('T')[0].split(' ')[0]
+      } else if (match.timestamp) {
+        matchDate = new Date(match.timestamp * 1000).toISOString().split('T')[0]
+      } else {
+        continue
       }
+
+      const nlMatchId = item.id || match.matchID || match.match_id
+
+      rows.push({
+        nl_match_id: nlMatchId,
+        opponent: opponent,
+        match_date: matchDate,
+        home: isFarnboroughHome,
+        result: null,
+      })
     }
 
-    const players = Object.values(playerMap)
-
-    if (players.length === 0) {
-      return NextResponse.json({ error: 'No players found in match data' }, { status: 400 })
+    if (rows.length === 0) {
+      return NextResponse.json({ upserted: 0, fixtures: [] })
     }
 
-    // Upsert players — on conflict of nl_player_id, update name and position
+    // Upsert on nl_match_id so re-syncing is safe
     const { error } = await db
-      .from('players')
-      .upsert(players, { onConflict: 'nl_player_id' })
+      .from('matches')
+      .upsert(rows, { onConflict: 'nl_match_id', ignoreDuplicates: false })
 
     if (error) throw new Error(error.message)
 
-    return NextResponse.json({ upserted: players.length, players })
+    return NextResponse.json({ upserted: rows.length, fixtures: rows })
   } catch (err) {
-    console.error('sync-squad error:', err)
+    console.error('sync-fixtures error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
