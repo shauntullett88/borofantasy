@@ -46,8 +46,24 @@ export async function POST(request) {
     const page = body.page || 1
     const pageSize = body.pageSize || 100
 
-    const raw = await fetchFixtures(from, to, page, pageSize)
+      // Fetch all pages until we get fewer results than page size
     const db = supabaseAdmin()
+    let allItems = []
+    let currentPage = 1
+    const size = 100
+
+    while (true) {
+      const raw = await fetchFixtures(from, to, currentPage, size)
+      const items = Array.isArray(raw) ? raw
+        : Array.isArray(raw?.data) ? raw.data
+        : []
+      allItems = [...allItems, ...items]
+      if (items.length < size) break // no more pages
+      currentPage++
+      if (currentPage > 10) break // safety limit
+    }
+
+    const raw = { data: allItems } // normalise for parser below
 
     // Handle various response shapes:
     // - array of tournament groups (expected)
