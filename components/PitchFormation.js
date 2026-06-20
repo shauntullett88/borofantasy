@@ -121,7 +121,7 @@ export default function PitchFormation({
                     slotLine={row.line}
                     showPoints={showPoints}
                     points={slot.player ? pointsByPlayer[slot.player.id] ?? 0 : 0}
-                    onClick={() => !readOnly && onSlotClick && onSlotClick(slotIdx)}
+                    onClick={() => onSlotClick && onSlotClick(slotIdx)}
                   />
                 )
               })}

@@ -7,6 +7,7 @@ import { calculatePoints } from '../../lib/game'
 import { DEFAULT_FORMATION, buildSlots } from '../../lib/formations'
 import PitchFormation from '../../components/PitchFormation'
 import PlayerCard from '../../components/PlayerCard'
+import PlayerStatsModal from '../../components/PlayerStatsModal'
 
 export default function MyTeamPage() {
   const { user, profile, loading } = useAuth()
@@ -15,10 +16,14 @@ export default function MyTeamPage() {
   const [pitchSlots, setPitchSlots] = useState(Array(11).fill(null))
   const [captainId, setCaptainId] = useState(null)
   const [bench, setBench] = useState([])
+  const [squadData, setSquadData] = useState([])
   const [pointsByPlayer, setPointsByPlayer] = useState({})
   const [totalPoints, setTotalPoints] = useState(0)
   const [hasSquad, setHasSquad] = useState(false)
   const [fetching, setFetching] = useState(true)
+
+  // Modal state
+  const [selectedPlayer, setSelectedPlayer] = useState(null)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -32,36 +37,35 @@ export default function MyTeamPage() {
     const savedFormation = settings?.formation || DEFAULT_FORMATION
     setFormation(savedFormation)
 
-    const { data: squadData } = await supabase
+    const { data: squad } = await supabase
       .from('squads')
       .select('*, players(*)')
       .eq('user_id', user.id)
 
-    if (!squadData || squadData.length === 0) {
+    if (!squad || squad.length === 0) {
       setHasSquad(false)
       setFetching(false)
       return
     }
     setHasSquad(true)
+    setSquadData(squad)
 
-    const playerIds = squadData.map((s) => s.player_id)
+    const playerIds = squad.map((s) => s.player_id)
 
     const { data: statsData } = await supabase
       .from('player_match_stats')
       .select('*')
       .in('player_id', playerIds)
 
-    // Fetch matches so we can look up result per match_id
     const { data: matches } = await supabase
       .from('matches')
       .select('id, result')
 
-    // Build a match result lookup: matchId → result ('W'|'D'|'L'|null)
     const matchResult = {}
     for (const m of (matches || [])) matchResult[m.id] = m.result
 
     const pointsMap = {}
-    for (const sq of squadData) {
+    for (const sq of squad) {
       const player = sq.players
       const thisPlayerStats = statsData?.filter((s) => s.player_id === sq.player_id) || []
       let total = 0
@@ -75,8 +79,8 @@ export default function MyTeamPage() {
     setPointsByPlayer(pointsMap)
     setTotalPoints(Object.values(pointsMap).reduce((a, b) => a + b, 0))
 
-    const starters = squadData.filter((s) => !s.is_bench)
-    const benchRows = squadData.filter((s) => s.is_bench)
+    const starters = squad.filter((s) => !s.is_bench)
+    const benchRows = squad.filter((s) => s.is_bench)
 
     const slotsDef = buildSlots(savedFormation)
     const newPitch = Array(11).fill(null)
@@ -108,6 +112,11 @@ export default function MyTeamPage() {
     if (user) fetchSquad()
   }, [user, fetchSquad])
 
+  function openPlayerModal(player) {
+    if (!player) return
+    setSelectedPlayer(player)
+  }
+
   if (loading || fetching) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -123,6 +132,11 @@ export default function MyTeamPage() {
   }))
 
   const allUnavailable = [...pitchSlots.filter(Boolean), ...bench].filter((p) => p.status !== 'active')
+
+  // Find squad entry for selected player (to know if bench/captain)
+  const selectedSquadEntry = selectedPlayer
+    ? squadData.find((sq) => sq.player_id === selectedPlayer.id)
+    : null
 
   return (
     <div className="max-w-lg mx-auto px-4 py-4">
@@ -158,20 +172,22 @@ export default function MyTeamPage() {
             showPoints
             pointsByPlayer={pointsByPlayer}
             readOnly
+            onSlotClick={(slotIdx) => openPlayerModal(pitchSlots[slotIdx])}
           />
 
           <div className="bg-ffc-muted/40 rounded-2xl p-4 border border-ffc-muted mt-4">
             <div className="text-center text-xs text-gray-400 font-semibold tracking-widest uppercase mb-3">Bench</div>
             <div className="grid grid-cols-1 gap-2">
               {bench.map((player) => (
-                <PlayerCard
-                  key={player.id}
-                  player={player}
-                  isCaptain={false}
-                  showPoints
-                  points={pointsByPlayer[player.id]}
-                  compact
-                />
+                <div key={player.id} onClick={() => openPlayerModal(player)} className="cursor-pointer">
+                  <PlayerCard
+                    player={player}
+                    isCaptain={false}
+                    showPoints
+                    points={pointsByPlayer[player.id]}
+                    compact
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -182,6 +198,16 @@ export default function MyTeamPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Player stats modal */}
+      {selectedPlayer && (
+        <PlayerStatsModal
+          player={selectedPlayer}
+          isCaptain={selectedSquadEntry?.is_captain || false}
+          isBench={selectedSquadEntry?.is_bench || false}
+          onClose={() => setSelectedPlayer(null)}
+        />
       )}
     </div>
   )
