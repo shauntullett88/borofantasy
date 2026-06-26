@@ -16,7 +16,11 @@ export default function Home() {
   return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="text-center">
-        <div className="text-5xl mb-4">⚽</div>
+        <img
+          src="/badge.png"
+          alt="Farnborough Football Club"
+          className="w-20 h-20 mx-auto mb-4 animate-pulse"
+        />
         <div className="text-ffc-gold font-display text-2xl tracking-widest">FFL</div>
         <div className="text-gray-400 text-sm mt-2">Loading…</div>
       </div>

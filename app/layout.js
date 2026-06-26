@@ -4,6 +4,7 @@ import BottomNav from '../components/BottomNav'
 import TopHeader from '../components/TopHeader'
 import TransferBanner from '../components/TransferBanner'
 import PWAInstall from '../components/PWAInstall'
+import SplashScreen from '../components/SplashScreen'
 
 export const metadata = {
   title: 'Farnborough Fantasy League',
@@ -30,6 +31,7 @@ export default function RootLayout({ children }) {
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body className="bg-ffc-dark text-white">
+        <SplashScreen />
         <AuthProvider>
           <TopHeader />
           <TransferBanner />

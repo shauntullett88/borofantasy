@@ -31,3 +31,71 @@ body {
 /* PWA safe area */
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* ===== Splash / loading screen ===== */
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-dark);
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+.splash-screen.is-hiding {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-badge {
+  width: 40vw;
+  max-width: 200px;
+  min-width: 130px;
+  height: auto;
+  transform-origin: center;
+  animation: splash-zoom 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.45));
+}
+
+/* Soft gold glow that pulses behind the badge */
+.splash-glow {
+  position: absolute;
+  width: 60vw;
+  max-width: 320px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245, 200, 66, 0.22) 0%, rgba(245, 200, 66, 0) 70%);
+  animation: splash-glow 2s ease-in-out forwards;
+}
+
+/* Zoom in (with a little overshoot), settle, hold, then zoom out and fade */
+@keyframes splash-zoom {
+  0%   { transform: scale(0.35); opacity: 0; }
+  28%  { transform: scale(1.08); opacity: 1; }
+  42%  { transform: scale(1);    opacity: 1; }
+  68%  { transform: scale(1.02); opacity: 1; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+@keyframes splash-glow {
+  0%   { transform: scale(0.4); opacity: 0; }
+  35%  { transform: scale(1);   opacity: 1; }
+  70%  { transform: scale(1.05); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Respect users who prefer less motion: gentle fade only, no big zoom */
+@media (prefers-reduced-motion: reduce) {
+  .splash-badge {
+    animation: splash-fade 1.4s ease forwards;
+  }
+  .splash-glow { display: none; }
+  @keyframes splash-fade {
+    0%   { opacity: 0; transform: scale(1); }
+    25%  { opacity: 1; transform: scale(1); }
+    75%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+}
