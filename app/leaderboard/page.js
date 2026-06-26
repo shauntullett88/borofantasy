@@ -5,8 +5,6 @@ import { useAuth } from '../../components/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { calculatePoints } from '../../lib/game'
 
-const MEDALS = ['🥇', '🥈', '🥉']
-
 export default function LeaderboardPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
@@ -95,7 +93,6 @@ export default function LeaderboardPage() {
         <div className="space-y-3">
           {entries.map((entry, idx) => {
             const isMe = entry.userId === user?.id
-            const medal = MEDALS[idx]
             const isTop = idx === 0
 
             return (
@@ -103,29 +100,25 @@ export default function LeaderboardPage() {
                 key={entry.userId}
                 className={`flex items-center gap-4 rounded-2xl px-4 py-3 border transition-all ${
                   isTop
-                    ? 'bg-ffc-gold/10 border-ffc-gold'
+                    ? 'bg-ffc-gold/[0.04] border-ffc-gold/40'
                     : isMe
                     ? 'bg-ffc-red/10 border-ffc-red'
                     : 'bg-ffc-surface border-ffc-muted'
                 }`}
               >
                 <div className="w-8 text-center">
-                  {medal ? (
-                    <span className="text-xl">{medal}</span>
-                  ) : (
-                    <span className="text-gray-400 font-bold text-sm">{idx + 1}</span>
-                  )}
+                  <span className={`font-bold text-sm ${isTop ? 'text-white' : 'text-gray-400'}`}>{idx + 1}</span>
                 </div>
 
                 <div className="flex-1">
-                  <span className={`font-semibold ${isTop ? 'text-ffc-gold' : isMe ? 'text-red-300' : 'text-white'}`}>
+                  <span className={`font-semibold ${isMe ? 'text-red-300' : 'text-white'}`}>
                     {entry.username}
                   </span>
                   {isMe && <span className="ml-2 text-xs text-gray-400">(you)</span>}
                 </div>
 
                 <div className="text-right">
-                  <span className={`text-xl font-bold ${isTop ? 'text-ffc-gold' : 'text-white'}`}>
+                  <span className="text-xl font-bold text-white">
                     {entry.points}
                   </span>
                   <span className="text-gray-400 text-xs ml-1">pts</span>
