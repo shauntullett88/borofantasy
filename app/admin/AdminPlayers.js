@@ -12,6 +12,7 @@ export default function AdminPlayers() {
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [scrapingSite, setScrapingSite] = useState(false)
   const [msg, setMsg] = useState(null)
   const [msgType, setMsgType] = useState('success')
 
@@ -81,6 +82,28 @@ export default function AdminPlayers() {
     }
   }
 
+  async function scrapeSiteSquad() {
+    setScrapingSite(true)
+    try {
+      const res = await fetch('/api/scrape-squad-site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showMsg(`❌ Scrape failed: ${data.error}`, 'error')
+      } else {
+        await fetchPlayers()
+        showMsg(`✅ ${data.scraped} players from the club site — ${data.inserted} added, ${data.updated} updated`)
+      }
+    } catch (err) {
+      showMsg(`❌ Network error: ${err.message}`, 'error')
+    } finally {
+      setScrapingSite(false)
+    }
+  }
+
   const filtered = players.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
   const byPosition = POSITIONS.reduce((acc, pos) => {
     acc[pos] = filtered.filter((p) => p.position === pos)
@@ -110,6 +133,23 @@ export default function AdminPlayers() {
             className="text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-lg px-3 py-2"
           >
             {syncing ? '⏳ Syncing…' : '👥 Sync Squad'}
+          </button>
+        </div>
+      </div>
+
+      {/* Scrape squad from the official club website */}
+      <div className="bg-ffc-surface rounded-2xl p-4 border border-ffc-muted mb-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-sm font-bold text-gray-300">Club Website Squad</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Scrape names &amp; positions from farnboroughfc.co.uk</p>
+          </div>
+          <button
+            onClick={scrapeSiteSquad}
+            disabled={scrapingSite}
+            className="text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-lg px-3 py-2"
+          >
+            {scrapingSite ? '⏳ Scraping…' : '🌐 Scrape Squad'}
           </button>
         </div>
       </div>
