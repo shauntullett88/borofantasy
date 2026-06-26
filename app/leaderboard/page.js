@@ -34,7 +34,7 @@ export default function LeaderboardPage() {
         .from('matches')
         .select('id, result')
 
-      const { data: profiles } = await supabase.from('profiles').select('id, username')
+      const { data: profiles } = await supabase.from('profiles').select('id, username, team_name')
 
       if (!squads || !profiles) { setFetching(false); return }
 
@@ -62,7 +62,7 @@ export default function LeaderboardPage() {
           }
         }
 
-        return { userId: profile.id, username: profile.username, points: totalPoints }
+        return { userId: profile.id, username: profile.username, teamName: profile.team_name, points: totalPoints }
       })
 
       leaderboard.sort((a, b) => b.points - a.points)
@@ -91,6 +91,14 @@ export default function LeaderboardPage() {
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Column headers */}
+          <div className="flex items-center gap-3 px-4 text-xs font-semibold tracking-wider text-gray-400 uppercase">
+            <div className="w-5 shrink-0"></div>
+            <div className="flex-1 min-w-0">Name</div>
+            <div className="flex-1 min-w-0">Team Name</div>
+            <div className="w-14 text-right shrink-0">Points</div>
+          </div>
+
           {entries.map((entry, idx) => {
             const isMe = entry.userId === user?.id
             const isTop = idx === 0
@@ -98,7 +106,7 @@ export default function LeaderboardPage() {
             return (
               <div
                 key={entry.userId}
-                className={`flex items-center gap-4 rounded-2xl px-4 py-3 border transition-all ${
+                className={`flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all ${
                   isTop
                     ? 'bg-ffc-gold/[0.04] border-ffc-gold/40'
                     : isMe
@@ -106,22 +114,29 @@ export default function LeaderboardPage() {
                     : 'bg-ffc-surface border-ffc-muted'
                 }`}
               >
-                <div className="w-8 text-center">
+                <div className="w-5 text-center shrink-0">
                   <span className={`font-bold text-sm ${isTop ? 'text-white' : 'text-gray-400'}`}>{idx + 1}</span>
                 </div>
 
-                <div className="flex-1">
-                  <span className={`font-semibold ${isMe ? 'text-red-300' : 'text-white'}`}>
-                    {entry.username}
-                  </span>
-                  {isMe && <span className="ml-2 text-xs text-gray-400">(you)</span>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className={`font-semibold truncate ${isMe ? 'text-red-300' : 'text-white'}`}>
+                      {entry.username}
+                    </span>
+                    {isMe && <span className="text-xs text-gray-400 shrink-0">(you)</span>}
+                  </div>
                 </div>
 
-                <div className="text-right">
-                  <span className="text-xl font-bold text-white">
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-gray-300 truncate block">
+                    {entry.teamName || '—'}
+                  </span>
+                </div>
+
+                <div className="w-14 text-right shrink-0">
+                  <span className="text-lg font-bold text-white">
                     {entry.points}
                   </span>
-                  <span className="text-gray-400 text-xs ml-1">pts</span>
                 </div>
               </div>
             )

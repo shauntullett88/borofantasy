@@ -34,11 +34,11 @@ export function AuthProvider({ children }) {
     return supabase.auth.signInWithPassword({ email, password })
   }
 
-  async function signUp(email, password, username) {
+  async function signUp(email, password, username, teamName) {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) return { error }
     if (data.user) {
-      await supabase.from('profiles').insert({ id: data.user.id, username, email, is_admin: false })
+      await supabase.from('profiles').insert({ id: data.user.id, username, team_name: teamName, email, is_admin: false })
     }
     return { data }
   }

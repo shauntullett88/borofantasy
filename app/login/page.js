@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
+  const [teamName, setTeamName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { signIn, signUp } = useAuth()
@@ -20,8 +21,9 @@ export default function LoginPage() {
     setLoading(true)
 
     if (isRegister) {
-      if (!username.trim()) { setError('Username is required'); setLoading(false); return }
-      const { error } = await signUp(email, password, username.trim())
+      if (!username.trim()) { setError('Name is required'); setLoading(false); return }
+      if (!teamName.trim()) { setError('Team name is required'); setLoading(false); return }
+      const { error } = await signUp(email, password, username.trim(), teamName.trim())
       if (error) { setError(error.message); setLoading(false); return }
       router.push('/my-team')
     } else {
@@ -57,12 +59,26 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {isRegister && (
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Username</label>
+              <label className="text-xs text-gray-400 mb-1 block">Name</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="e.g. Shaun2026"
+                className="w-full bg-ffc-dark border border-ffc-muted rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-ffc-gold transition-colors"
+                required
+              />
+            </div>
+          )}
+
+          {isRegister && (
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Team Name</label>
+              <input
+                type="text"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="e.g. Shaun's Stars"
                 className="w-full bg-ffc-dark border border-ffc-muted rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-ffc-gold transition-colors"
                 required
               />
