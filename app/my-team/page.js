@@ -140,12 +140,17 @@ export default function MyTeamPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">{profile?.username || 'My Team'}</h1>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold flex items-baseline gap-2 flex-wrap">
+            <span>{profile?.username || 'My Team'}</span>
+            {profile?.team_name && (
+              <span className="text-ffc-gold text-base font-semibold">{profile.team_name}</span>
+            )}
+          </h1>
           <p className="text-gray-400 text-sm">2026/27 Season — {formation}</p>
         </div>
-        <div className="text-right">
+        <div className="text-right shrink-0">
           <div className="text-3xl font-bold text-ffc-gold">{totalPoints}</div>
           <div className="text-xs text-gray-400">total points</div>
         </div>
