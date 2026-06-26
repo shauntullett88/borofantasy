@@ -92,11 +92,11 @@ export default function LeaderboardPage() {
       ) : (
         <div className="space-y-3">
           {/* Column headers */}
-          <div className="flex items-center gap-3 px-4 text-xs font-semibold tracking-wider text-gray-400 uppercase">
+          <div className="flex items-center gap-2 px-4 text-xs font-semibold tracking-wider text-gray-400 uppercase">
             <div className="w-5 shrink-0"></div>
             <div className="flex-1 min-w-0">Name</div>
             <div className="flex-1 min-w-0">Team Name</div>
-            <div className="w-14 text-right shrink-0">Points</div>
+            <div className="w-12 text-right shrink-0">Points</div>
           </div>
 
           {entries.map((entry, idx) => {
@@ -106,7 +106,7 @@ export default function LeaderboardPage() {
             return (
               <div
                 key={entry.userId}
-                className={`flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all ${
+                className={`flex items-center gap-2 rounded-2xl px-4 py-3 border transition-all ${
                   isTop
                     ? 'bg-ffc-gold/[0.04] border-ffc-gold/40'
                     : isMe
@@ -119,8 +119,8 @@ export default function LeaderboardPage() {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className={`font-semibold truncate ${isMe ? 'text-red-300' : 'text-white'}`}>
+                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                    <span className={`font-semibold leading-tight break-words ${isMe ? 'text-red-300' : 'text-white'}`}>
                       {entry.username}
                     </span>
                     {isMe && <span className="text-xs text-gray-400 shrink-0">(you)</span>}
@@ -128,12 +128,12 @@ export default function LeaderboardPage() {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm text-gray-300 truncate block">
+                  <span className="text-sm text-gray-300 leading-tight break-words block">
                     {entry.teamName || '—'}
                   </span>
                 </div>
 
-                <div className="w-14 text-right shrink-0">
+                <div className="w-12 text-right shrink-0">
                   <span className="text-lg font-bold text-white">
                     {entry.points}
                   </span>
