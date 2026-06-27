@@ -35,12 +35,20 @@ export function AuthProvider({ children }) {
   }
 
   async function signUp(email, password, username, teamName) {
-    const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) return { error }
-    if (data.user) {
-      await supabase.from('profiles').insert({ id: data.user.id, username, team_name: teamName, email, is_admin: false })
-    }
-    return { data }
+    // Create user + profile server-side (service role bypasses RLS, auto-confirms email)
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, username, teamName }),
+    })
+    const json = await res.json()
+    if (!res.ok) return { error: { message: json.error } }
+
+    // Account created — sign them straight in so they land on My Team
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    if (signInError) return { error: { message: 'Account created! Please sign in.' } }
+
+    return { data: {} }
   }
 
   async function signOut() {
