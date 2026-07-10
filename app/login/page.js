@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useAuth } from '../../components/AuthContext'
 
 export default function LoginPage() {
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [teamName, setTeamName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
   const { signIn, signUp } = useAuth()
   const router = useRouter()
 
@@ -23,15 +25,51 @@ export default function LoginPage() {
     if (isRegister) {
       if (!username.trim()) { setError('Name is required'); setLoading(false); return }
       if (!teamName.trim()) { setError('Team name is required'); setLoading(false); return }
-      const { error } = await signUp(email, password, username.trim(), teamName.trim())
+      const { error, needsConfirmation } = await signUp(email, password, username.trim(), teamName.trim())
       if (error) { setError(error.message); setLoading(false); return }
-      router.push('/my-team')
+      if (needsConfirmation) { setConfirmed(true); setLoading(false); return }
     } else {
       const { error } = await signIn(email, password)
-      if (error) { setError('Invalid email or password'); setLoading(false); return }
+      if (error) {
+        const code = error.message ?? ''
+        if (code === 'email_not_verified') {
+          setError('Please confirm your email first — check your inbox for the link we sent you.')
+        } else if (code === 'password_not_set') {
+          setError('Please set a password for your account first — use "Forgot password?" below.')
+        } else {
+          setError('Invalid email or password')
+        }
+        setLoading(false)
+        return
+      }
       router.push('/my-team')
     }
     setLoading(false)
+  }
+
+  // "Check your email" screen shown after successful registration
+  if (confirmed) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4">
+        <div className="w-full max-w-sm bg-ffc-surface rounded-2xl p-8 border border-ffc-muted text-center">
+          <div className="text-5xl mb-4">📧</div>
+          <h2 className="text-xl font-bold text-white mb-3">Check your email!</h2>
+          <p className="text-gray-400 text-sm leading-relaxed mb-6">
+            We've sent a confirmation link to <span className="text-ffc-gold font-semibold">{email}</span>.
+            Click the link in the email to confirm your account and start building your squad.
+          </p>
+          <p className="text-gray-600 text-xs">
+            Can't find it? Check your spam folder.
+          </p>
+          <button
+            onClick={() => { setConfirmed(false); setIsRegister(false) }}
+            className="mt-6 text-ffc-gold text-sm font-semibold hover:underline"
+          >
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -127,6 +165,14 @@ export default function LoginPage() {
             {isRegister ? 'Sign in' : 'Register'}
           </button>
         </p>
+
+        {!isRegister && (
+          <p className="text-center text-sm mt-2">
+            <Link href="/forgot-password" className="text-gray-500 hover:underline">
+              Forgot password?
+            </Link>
+          </p>
+        )}
       </div>
 
       <p className="text-xs text-gray-600 mt-6 text-center">

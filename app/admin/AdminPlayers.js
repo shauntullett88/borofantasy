@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase'
 import { POSITIONS, STATUSES, POSITION_COLORS } from '../../lib/game'
 
 const EMPTY_FORM = { name: '', position: 'GK', status: 'active' }
@@ -23,8 +22,9 @@ export default function AdminPlayers() {
   }
 
   async function fetchPlayers() {
-    const { data } = await supabase.from('players').select('*').order('position').order('name')
-    setPlayers(data || [])
+    const res = await fetch('/api/players')
+    const { players } = await res.json()
+    setPlayers(players || [])
   }
 
   useEffect(() => { fetchPlayers() }, [])
@@ -43,10 +43,18 @@ export default function AdminPlayers() {
     if (!form.name.trim()) return
     setSaving(true)
     if (editId) {
-      await supabase.from('players').update({ name: form.name.trim(), position: form.position, status: form.status }).eq('id', editId)
+      await fetch(`/api/players/${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name.trim(), position: form.position, status: form.status }),
+      })
       showMsg('✅ Player updated')
     } else {
-      await supabase.from('players').insert({ name: form.name.trim(), position: form.position, status: form.status })
+      await fetch('/api/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: form.name.trim(), position: form.position, status: form.status }),
+      })
       showMsg('✅ Player added')
     }
     cancelEdit()
@@ -56,7 +64,7 @@ export default function AdminPlayers() {
 
   async function deletePlayer(id) {
     if (!confirm('Remove this player? This cannot be undone.')) return
-    await supabase.from('players').delete().eq('id', id)
+    await fetch(`/api/players/${id}`, { method: 'DELETE' })
     await fetchPlayers()
   }
 

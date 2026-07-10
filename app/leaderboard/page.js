@@ -2,8 +2,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../components/AuthContext'
-import { supabase } from '../../lib/supabase'
-import { calculatePoints } from '../../lib/game'
 
 export default function LeaderboardPage() {
   const { user, loading } = useAuth()
@@ -20,53 +18,9 @@ export default function LeaderboardPage() {
 
     async function fetchLeaderboard() {
       setFetching(true)
-
-      const { data: squads } = await supabase
-        .from('squads')
-        .select('user_id, player_id, is_bench, is_captain, players(*)')
-
-      const { data: allStats } = await supabase
-        .from('player_match_stats')
-        .select('*')
-
-      // Fetch matches so we can look up result per match_id
-      const { data: matches } = await supabase
-        .from('matches')
-        .select('id, result')
-
-      const { data: profiles } = await supabase.from('profiles').select('id, username, team_name')
-
-      if (!squads || !profiles) { setFetching(false); return }
-
-      // Build a match result lookup: matchId → result ('W'|'D'|'L'|null)
-      const matchResult = {}
-      for (const m of (matches || [])) matchResult[m.id] = m.result
-
-      // Group squads by user
-      const byUser = {}
-      for (const sq of squads) {
-        if (!byUser[sq.user_id]) byUser[sq.user_id] = []
-        byUser[sq.user_id].push(sq)
-      }
-
-      const leaderboard = profiles.map((profile) => {
-        const userSquad = byUser[profile.id] || []
-        let totalPoints = 0
-
-        for (const sq of userSquad) {
-          const player = sq.players
-          const playerStats = allStats?.filter((s) => s.player_id === sq.player_id) || []
-          for (const stat of playerStats) {
-            const result = matchResult[stat.match_id] || null
-            totalPoints += calculatePoints(stat, sq.is_bench, player?.position, sq.is_captain, result)
-          }
-        }
-
-        return { userId: profile.id, username: profile.username, teamName: profile.team_name, points: totalPoints }
-      })
-
-      leaderboard.sort((a, b) => b.points - a.points)
-      setEntries(leaderboard)
+      const res = await fetch('/api/leaderboard')
+      const { entries } = await res.json()
+      setEntries(entries || [])
       setFetching(false)
     }
 

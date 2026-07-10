@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase'
 
 const EMPTY_MATCH = { opponent: '', match_date: new Date().toISOString().split('T')[0], home: true, result: null }
 
@@ -34,13 +33,15 @@ export default function AdminMatches() {
   }
 
   async function fetchMatches() {
-    const { data } = await supabase.from('matches').select('*').order('match_date', { ascending: false })
-    setMatches(data || [])
+    const res = await fetch('/api/matches')
+    const { matches } = await res.json()
+    setMatches(matches || [])
   }
 
   async function fetchPlayers() {
-    const { data } = await supabase.from('players').select('*').eq('status', 'active').order('position').order('name')
-    setPlayers(data || [])
+    const res = await fetch('/api/players')
+    const { players } = await res.json()
+    setPlayers((players || []).filter((p) => p.status === 'active'))
   }
 
   useEffect(() => { fetchMatches(); fetchPlayers() }, [])
@@ -48,7 +49,8 @@ export default function AdminMatches() {
   async function selectMatch(match) {
     setSelectedMatch(match)
     setSyncWarnings([])
-    const { data: stats } = await supabase.from('player_match_stats').select('*').eq('match_id', match.id)
+    const res = await fetch(`/api/matches/${match.id}/stats`)
+    const { stats } = await res.json()
     const map = {}
     for (const s of (stats || [])) map[s.player_id] = s
     setExistingStats(map)
@@ -154,15 +156,20 @@ export default function AdminMatches() {
   async function createMatch() {
     if (!matchForm.opponent.trim()) return
     setSaving(true)
-    const { data } = await supabase
-      .from('matches')
-      .insert({ opponent: matchForm.opponent.trim(), match_date: matchForm.match_date, home: matchForm.home, result: matchForm.result || null })
-      .select().single()
+    const res = await fetch('/api/matches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        opponent: matchForm.opponent.trim(), match_date: matchForm.match_date,
+        home: matchForm.home, result: matchForm.result || null,
+      }),
+    })
+    const { match } = await res.json()
     setSaving(false)
     setShowNewMatch(false)
     setMatchForm(EMPTY_MATCH)
     await fetchMatches()
-    if (data) selectMatch(data)
+    if (match) selectMatch(match)
   }
 
   function updateDraft(playerId, field, value) {
@@ -172,26 +179,16 @@ export default function AdminMatches() {
   async function saveStats() {
     if (!selectedMatch) return
     setSaving(true)
-    for (const player of players) {
-      const stat = draftStats[player.id]
-      if (!stat) continue
-      const existing = existingStats[player.id]
-      const payload = {
-        match_id: selectedMatch.id, player_id: player.id,
-        appearance: stat.appearance || stat.started || stat.sub_on || false,
-        played90: stat.played90 || false, goals: parseInt(stat.goals) || 0,
-        assists: parseInt(stat.assists) || 0, clean_sheet: stat.clean_sheet || false,
-        started: stat.started || false, sub_on: stat.sub_on || false,
-        yellow_card: stat.yellow_card || false, red_card: stat.red_card || false,
-      }
-      if (existing) {
-        await supabase.from('player_match_stats').update(payload).eq('id', existing.id)
-      } else {
-        const hasData = payload.appearance || payload.goals > 0 || payload.assists > 0 ||
-          payload.clean_sheet || payload.started || payload.sub_on || payload.yellow_card || payload.red_card
-        if (hasData) await supabase.from('player_match_stats').insert(payload)
-      }
-    }
+    const stats = players
+      .filter((p) => draftStats[p.id])
+      .map((p) => ({ player_id: p.id, ...draftStats[p.id] }))
+
+    await fetch(`/api/matches/${selectedMatch.id}/stats`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stats }),
+    })
+
     await selectMatch(selectedMatch)
     setSaving(false)
     showMsg('✅ Stats saved')
@@ -199,8 +196,7 @@ export default function AdminMatches() {
 
   async function deleteMatch(id) {
     if (!confirm('Delete this match and all its stats?')) return
-    await supabase.from('player_match_stats').delete().eq('match_id', id)
-    await supabase.from('matches').delete().eq('id', id)
+    await fetch(`/api/matches/${id}`, { method: 'DELETE' })
     if (selectedMatch?.id === id) { setSelectedMatch(null); setDraftStats({}) }
     await fetchMatches()
   }
@@ -358,7 +354,11 @@ export default function AdminMatches() {
                 <button key={r} type="button"
                   onClick={async () => {
                     const newResult = selectedMatch.result === r ? null : r
-                    await supabase.from('matches').update({ result: newResult }).eq('id', selectedMatch.id)
+                    await fetch(`/api/matches/${selectedMatch.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ result: newResult }),
+                    })
                     setSelectedMatch({ ...selectedMatch, result: newResult })
                     setMatches((prev) => prev.map((m) => m.id === selectedMatch.id ? { ...m, result: newResult } : m))
                   }}

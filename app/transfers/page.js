@@ -2,7 +2,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../components/AuthContext'
-import { supabase } from '../../lib/supabase'
 import { validateSquad, validateFormationSlots, getTransferWindowStatus, POSITION_COLORS } from '../../lib/game'
 import { DEFAULT_FORMATION, buildSlots } from '../../lib/formations'
 import PitchFormation from '../../components/PitchFormation'
@@ -47,14 +46,12 @@ export default function TransfersPage() {
     if (!user) return
     setFetching(true)
 
-    const { data: players } = await supabase.from('players').select('*').order('name')
+    const res = await fetch('/api/squad')
+    const { players, formation: savedFormationRaw, squad: squadData } = await res.json()
     setAllPlayers(players || [])
 
-    const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
-    const savedFormation = settings?.formation || DEFAULT_FORMATION
+    const savedFormation = savedFormationRaw || DEFAULT_FORMATION
     setFormation(savedFormation)
-
-    const { data: squadData } = await supabase.from('squads').select('*, players(*)').eq('user_id', user.id)
 
     if (squadData?.length > 0) {
       const slots = buildSlots(savedFormation)
@@ -189,18 +186,14 @@ export default function TransfersPage() {
     setErrors([])
     setSaving(true)
 
-    await supabase.from('squads').delete().eq('user_id', user.id)
-
     const rows = [
       ...pitchSlots.map((player, idx) => player ? {
-        user_id: user.id,
         player_id: player.id,
         is_bench: false,
         is_captain: player.id === captainId,
         slot_index: idx,
       } : null).filter(Boolean),
       ...bench.map((player) => player ? {
-        user_id: user.id,
         player_id: player.id,
         is_bench: true,
         is_captain: false,
@@ -208,15 +201,15 @@ export default function TransfersPage() {
       } : null).filter(Boolean),
     ]
 
-    const { error: squadError } = await supabase.from('squads').insert(rows)
+    const res = await fetch('/api/squad', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ formation, rows }),
+    })
 
-    await supabase.from('user_settings').upsert(
-      { user_id: user.id, formation, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id' }
-    )
-
-    if (squadError) {
-      setErrors(['Failed to save squad. Please try again.'])
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      setErrors([json.error || 'Failed to save squad. Please try again.'])
     } else {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)

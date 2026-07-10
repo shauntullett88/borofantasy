@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
 import { calculatePoints } from '../lib/game'
 import { POSITION_COLORS } from '../lib/game'
 
@@ -21,14 +20,8 @@ export default function PlayerStatsModal({ player, isCaptain, isBench, onClose }
     async function load() {
       setLoading(true)
 
-      const { data: statsData } = await supabase
-        .from('player_match_stats')
-        .select('*')
-        .eq('player_id', player.id)
-
-      const { data: matchData } = await supabase
-        .from('matches')
-        .select('id, opponent, match_date, home, result')
+      const res = await fetch(`/api/player-stats/${player.id}`)
+      const { stats: statsData, matches: matchData } = await res.json()
 
       const matchMap = {}
       for (const m of (matchData || [])) matchMap[m.id] = m

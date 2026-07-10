@@ -2,7 +2,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../components/AuthContext'
-import { supabase } from '../../lib/supabase'
 import { calculatePoints } from '../../lib/game'
 import { DEFAULT_FORMATION, buildSlots } from '../../lib/formations'
 import PitchFormation from '../../components/PitchFormation'
@@ -33,14 +32,10 @@ export default function MyTeamPage() {
     if (!user) return
     setFetching(true)
 
-    const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', user.id).maybeSingle()
-    const savedFormation = settings?.formation || DEFAULT_FORMATION
+    const res = await fetch('/api/squad')
+    const { formation: savedFormationRaw, squad, stats: statsData, matches } = await res.json()
+    const savedFormation = savedFormationRaw || DEFAULT_FORMATION
     setFormation(savedFormation)
-
-    const { data: squad } = await supabase
-      .from('squads')
-      .select('*, players(*)')
-      .eq('user_id', user.id)
 
     if (!squad || squad.length === 0) {
       setHasSquad(false)
@@ -49,17 +44,6 @@ export default function MyTeamPage() {
     }
     setHasSquad(true)
     setSquadData(squad)
-
-    const playerIds = squad.map((s) => s.player_id)
-
-    const { data: statsData } = await supabase
-      .from('player_match_stats')
-      .select('*')
-      .in('player_id', playerIds)
-
-    const { data: matches } = await supabase
-      .from('matches')
-      .select('id, result')
 
     const matchResult = {}
     for (const m of (matches || [])) matchResult[m.id] = m.result

@@ -9,7 +9,8 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase'
+import { query } from '../../../lib/db'
+import { requireAdmin } from '../../../lib/authz'
 
 const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
 const FARNBOROUGH_TEAM_ID = 't1044'
@@ -37,6 +38,9 @@ async function fetchFixtures(from, to, page = 1, pageSize = 100) {
 }
 
 export async function POST(request) {
+  const { error: authError } = await requireAdmin()
+  if (authError) return authError
+
   try {
     const body = await request.json().catch(() => ({}))
 
@@ -47,7 +51,6 @@ export async function POST(request) {
     const pageSize = body.pageSize || 100
 
       // Fetch all pages until we get fewer results than page size
-    const db = supabaseAdmin()
     let allItems = []
     let currentPage = 1
     const size = 100
@@ -132,11 +135,15 @@ export async function POST(request) {
     }
 
     // Upsert on nl_match_id so re-syncing is safe
-    const { error } = await db
-      .from('matches')
-      .upsert(rows, { onConflict: 'nl_match_id', ignoreDuplicates: false })
-
-    if (error) throw new Error(error.message)
+    for (const r of rows) {
+      await query(
+        `insert into matches (nl_match_id, opponent, match_date, home, result)
+         values ($1, $2, $3, $4, $5)
+         on conflict (nl_match_id) do update set
+           opponent = excluded.opponent, match_date = excluded.match_date, home = excluded.home`,
+        [r.nl_match_id, r.opponent, r.match_date, r.home, r.result]
+      )
+    }
 
     return NextResponse.json({ upserted: rows.length, fixtures: rows })
   } catch (err) {

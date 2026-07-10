@@ -1,21 +1,21 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase'
+import { query } from '../../../lib/db'
+import { requireAdmin } from '../../../lib/authz'
 
 export async function POST(request) {
+  const { error } = await requireAdmin()
+  if (error) return error
+
   try {
     const { title, body, url } = await request.json()
-    const db = supabaseAdmin()
+    const subs = await query('select * from push_subscriptions')
 
-    // Get all push subscriptions
-    const { data: subs } = await db.from('push_subscriptions').select('*')
-
-    if (!subs || subs.length === 0) {
+    if (subs.length === 0) {
       return NextResponse.json({ sent: 0 })
     }
 
-    // Use web-push
     const webpush = (await import('web-push')).default
     webpush.setVapidDetails(
       'mailto:' + process.env.VAPID_EMAIL,
@@ -39,9 +39,8 @@ export async function POST(request) {
       }
     }
 
-    // Clean expired subscriptions
     if (expired.length > 0) {
-      await db.from('push_subscriptions').delete().in('id', expired)
+      await query('delete from push_subscriptions where id = any($1)', [expired])
     }
 
     return NextResponse.json({ sent })

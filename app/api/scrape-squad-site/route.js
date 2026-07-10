@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase'
+import { query } from '../../../lib/db'
+import { requireAdmin } from '../../../lib/authz'
 import { parseSquadHtml } from '../../../lib/parseFarnboroughSquad'
 
 const SQUAD_URL = 'https://farnboroughfc.co.uk/teams/mens-first-team/'
@@ -33,6 +34,9 @@ async function fetchSquad() {
 }
 
 export async function GET() {
+  const { error: authError } = await requireAdmin()
+  if (authError) return authError
+
   try {
     const players = await fetchSquad()
     return NextResponse.json({ scraped: players.length, players })
@@ -42,6 +46,9 @@ export async function GET() {
 }
 
 export async function POST() {
+  const { error: authError } = await requireAdmin()
+  if (authError) return authError
+
   try {
     const scraped = await fetchSquad()
     if (scraped.length === 0) {
@@ -51,14 +58,10 @@ export async function POST() {
       )
     }
 
-    const db = supabaseAdmin()
-    const { data: existing, error: readErr } = await db
-      .from('players')
-      .select('id, name, position, status')
-    if (readErr) throw new Error(readErr.message)
+    const existing = await query('select id, name, position, status from players')
 
     const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim()
-    const byName = new Map((existing || []).map((p) => [norm(p.name), p]))
+    const byName = new Map(existing.map((p) => [norm(p.name), p]))
 
     let updated = 0
     const toInsert = []
@@ -68,8 +71,7 @@ export async function POST() {
       if (match) {
         // Update position only if it changed; leave status untouched.
         if (match.position !== p.position) {
-          const { error } = await db.from('players').update({ position: p.position }).eq('id', match.id)
-          if (error) throw new Error(error.message)
+          await query('update players set position = $1 where id = $2', [p.position, match.id])
           updated++
         }
       } else {
@@ -77,9 +79,8 @@ export async function POST() {
       }
     }
 
-    if (toInsert.length > 0) {
-      const { error } = await db.from('players').insert(toInsert)
-      if (error) throw new Error(error.message)
+    for (const p of toInsert) {
+      await query('insert into players (name, position, status) values ($1, $2, $3)', [p.name, p.position, p.status])
     }
 
     return NextResponse.json({

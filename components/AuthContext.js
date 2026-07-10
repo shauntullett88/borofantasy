@@ -1,41 +1,31 @@
 'use client'
-import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { createContext, useContext } from 'react'
+import { SessionProvider, useSession, signIn as nextAuthSignIn, signOut as nextAuthSignOut } from 'next-auth/react'
 
 const AuthContext = createContext({})
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
+function AuthContextBridge({ children }) {
+  const { data: session, status } = useSession()
+  const loading = status === 'loading'
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      else setLoading(false)
-    })
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      else { setProfile(null); setLoading(false) }
-    })
-    return () => listener.subscription.unsubscribe()
-  }, [])
-
-  async function fetchProfile(userId) {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
-    setProfile(data)
-    setLoading(false)
-  }
+  const user = session?.user ? { id: session.user.id, email: session.user.email } : null
+  const profile = session?.user
+    ? {
+        id: session.user.id,
+        username: session.user.username,
+        team_name: session.user.teamName,
+        is_admin: session.user.isAdmin,
+        email: session.user.email,
+      }
+    : null
 
   async function signIn(email, password) {
-    return supabase.auth.signInWithPassword({ email, password })
+    const res = await nextAuthSignIn('credentials', { redirect: false, email, password })
+    if (res?.error) return { error: { message: res.error } }
+    return { data: {} }
   }
 
   async function signUp(email, password, username, teamName) {
-    // Create user + profile server-side (service role bypasses RLS, auto-confirms email)
     const res = await fetch('/api/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -43,24 +33,25 @@ export function AuthProvider({ children }) {
     })
     const json = await res.json()
     if (!res.ok) return { error: { message: json.error } }
-
-    // Account created — sign them straight in so they land on My Team
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-    if (signInError) return { error: { message: 'Account created! Please sign in.' } }
-
-    return { data: {} }
+    return { data: {}, needsConfirmation: true }
   }
 
   async function signOut() {
-    await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
+    await nextAuthSignOut({ redirect: false })
   }
 
   return (
     <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
+  )
+}
+
+export function AuthProvider({ children }) {
+  return (
+    <SessionProvider>
+      <AuthContextBridge>{children}</AuthContextBridge>
+    </SessionProvider>
   )
 }
 

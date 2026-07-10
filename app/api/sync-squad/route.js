@@ -9,7 +9,8 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase'
+import { query } from '../../../lib/db'
+import { requireAdmin } from '../../../lib/authz'
 
 const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
 const FARNBOROUGH_TEAM_ID = 't1044'
@@ -37,16 +38,12 @@ function mapPosition(nlPosition, nlSubPosition) {
 }
 
 export async function POST(request) {
+  const { error: authError } = await requireAdmin()
+  if (authError) return authError
+
   try {
-    const db = supabaseAdmin()
+    const matches = await query('select id, nl_match_id from matches where nl_match_id is not null')
 
-    // Get all matches with nl_match_id
-    const { data: matches, error: matchErr } = await db
-      .from('matches')
-      .select('id, nl_match_id')
-      .not('nl_match_id', 'is', null)
-
-    if (matchErr) throw new Error(matchErr.message)
     if (!matches?.length) {
       return NextResponse.json({ error: 'No synced matches found — sync fixtures first' }, { status: 400 })
     }
@@ -118,11 +115,14 @@ export async function POST(request) {
     }
 
     // Upsert players — on conflict of nl_player_id, update name and position
-    const { error } = await db
-      .from('players')
-      .upsert(players, { onConflict: 'nl_player_id' })
-
-    if (error) throw new Error(error.message)
+    for (const p of players) {
+      await query(
+        `insert into players (nl_player_id, name, position, status)
+         values ($1, $2, $3, $4)
+         on conflict (nl_player_id) do update set name = excluded.name, position = excluded.position`,
+        [p.nl_player_id, p.name, p.position, p.status]
+      )
+    }
 
     return NextResponse.json({ upserted: players.length, players })
   } catch (err) {

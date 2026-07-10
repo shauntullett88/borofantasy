@@ -9,7 +9,8 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../lib/supabase'
+import { query } from '../../../lib/db'
+import { requireAdmin } from '../../../lib/authz'
 
 const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
 const FARNBOROUGH_TEAM_ID = 't1044'
@@ -43,6 +44,9 @@ function mapPosition(nlPosition) {
 }
 
 export async function POST(request) {
+  const { error: authError } = await requireAdmin()
+  if (authError) return authError
+
   try {
     const { matchId, nlMatchId } = await request.json()
 
@@ -51,7 +55,6 @@ export async function POST(request) {
     }
 
     const matchData = await fetchMatchData(nlMatchId)
-    const db = supabaseAdmin()
     const warnings = []
 
     // Find Farnborough's team data in matchTeams
@@ -64,15 +67,15 @@ export async function POST(request) {
     const result = determineResult(matchData)
 
     // Update match result in DB
-    await db.from('matches').update({ result }).eq('id', matchId)
+    await query('update matches set result = $1 where id = $2', [result, matchId])
 
     // Get all players from DB with their nl_player_id
-    const { data: dbPlayers } = await db.from('players').select('id, name, position, nl_player_id')
+    const dbPlayers = await query('select id, name, position, nl_player_id from players')
 
     // Build lookup: nl_player_id → db player
     const playerByNlId = {}
     const playerByName = {}
-    for (const p of (dbPlayers || [])) {
+    for (const p of dbPlayers) {
       if (p.nl_player_id) playerByNlId[p.nl_player_id] = p
       playerByName[p.name.toLowerCase()] = p
     }
@@ -86,7 +89,7 @@ export async function POST(request) {
       if (playerByName[fullName]) {
         // Auto-link nl_player_id for future syncs
         const dbPlayer = playerByName[fullName]
-        db.from('players').update({ nl_player_id: nlPlayerId }).eq('id', dbPlayer.id)
+        query('update players set nl_player_id = $1 where id = $2', [nlPlayerId, dbPlayer.id]).catch(() => {})
         return dbPlayer
       }
       return null
@@ -220,11 +223,18 @@ export async function POST(request) {
       return NextResponse.json({ upserted: 0, result, warnings })
     }
 
-    const { error } = await db
-      .from('player_match_stats')
-      .upsert(rows, { onConflict: 'match_id,player_id' })
-
-    if (error) throw new Error(error.message)
+    for (const r of rows) {
+      await query(
+        `insert into player_match_stats
+           (match_id, player_id, appearance, played90, started, sub_on, goals, assists, clean_sheet, yellow_card, red_card)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         on conflict (match_id, player_id) do update set
+           appearance = excluded.appearance, played90 = excluded.played90, started = excluded.started,
+           sub_on = excluded.sub_on, goals = excluded.goals, assists = excluded.assists,
+           clean_sheet = excluded.clean_sheet, yellow_card = excluded.yellow_card, red_card = excluded.red_card`,
+        [r.match_id, r.player_id, r.appearance, r.played90, r.started, r.sub_on, r.goals, r.assists, r.clean_sheet, r.yellow_card, r.red_card]
+      )
+    }
 
     return NextResponse.json({ upserted: rows.length, result, warnings })
   } catch (err) {
