@@ -20,6 +20,12 @@ function AuthContextBridge({ children }) {
     : null
 
   async function signIn(email, password) {
+    const statusRes = await fetch(`/api/account-status?email=${encodeURIComponent(email)}`)
+    const status = await statusRes.json()
+
+    if (status.exists && !status.verified) return { error: { message: 'email_not_verified' } }
+    if (status.exists && !status.hasPassword) return { error: { message: 'password_not_set' } }
+
     const res = await nextAuthSignIn('credentials', { redirect: false, email, password })
     if (res?.error) return { error: { message: res.error } }
     return { data: {} }

@@ -1,16 +1,8 @@
-import NextAuth, { CredentialsSignin } from 'next-auth'
+import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { authConfig } from './auth.config'
 import { query } from './lib/db'
-
-class EmailNotVerifiedError extends CredentialsSignin {
-  code = 'email_not_verified'
-}
-
-class PasswordNotSetError extends CredentialsSignin {
-  code = 'password_not_set'
-}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -21,9 +13,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const rows = await query('select * from users where email = $1', [credentials.email])
         const user = rows[0]
         if (!user) return null
-
-        if (!user.email_verified_at) throw new EmailNotVerifiedError()
-        if (!user.password_hash) throw new PasswordNotSetError()
+        if (!user.email_verified_at) return null
+        if (!user.password_hash) return null
 
         const valid = await bcrypt.compare(credentials.password, user.password_hash)
         if (!valid) return null
