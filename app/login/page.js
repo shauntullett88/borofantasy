@@ -102,7 +102,7 @@ export default function LoginPage() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. Shaun2026"
+                placeholder="e.g. BoroFan88"
                 className="w-full bg-ffc-dark border border-ffc-muted rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-ffc-gold transition-colors"
                 required
               />
@@ -116,7 +116,7 @@ export default function LoginPage() {
                 type="text"
                 value={teamName}
                 onChange={(e) => setTeamName(e.target.value)}
-                placeholder="e.g. Shaun's Stars"
+                placeholder="e.g. Cherrywood Rovers"
                 className="w-full bg-ffc-dark border border-ffc-muted rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-ffc-gold transition-colors"
                 required
               />
