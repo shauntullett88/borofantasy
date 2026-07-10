@@ -114,17 +114,42 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No players found in match data' }, { status: 400 })
     }
 
-    // Upsert players — on conflict of nl_player_id, update name and position
+    // Match against existing players by NL id first, then by normalised name —
+    // players created by the club-website scrape have no nl_player_id yet, and
+    // inserting blindly on nl_player_id conflict would duplicate them.
+    const existing = await query('select id, name, nl_player_id from players')
+    const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+    const byNlId = new Map(existing.filter((p) => p.nl_player_id).map((p) => [p.nl_player_id, p]))
+    const byName = new Map(existing.map((p) => [norm(p.name), p]))
+
+    let inserted = 0
+    let linked = 0
+    let updated = 0
+
     for (const p of players) {
+      const idMatch = byNlId.get(p.nl_player_id)
+      if (idMatch) {
+        await query('update players set name = $1, position = $2 where id = $3', [p.name, p.position, idMatch.id])
+        updated++
+        continue
+      }
+
+      const nameMatch = byName.get(norm(p.name))
+      if (nameMatch) {
+        // Existing player (likely from the website scrape) — link the NL id
+        await query('update players set nl_player_id = $1, position = $2 where id = $3', [p.nl_player_id, p.position, nameMatch.id])
+        linked++
+        continue
+      }
+
       await query(
-        `insert into players (nl_player_id, name, position, status)
-         values ($1, $2, $3, $4)
-         on conflict (nl_player_id) do update set name = excluded.name, position = excluded.position`,
+        'insert into players (nl_player_id, name, position, status) values ($1, $2, $3, $4)',
         [p.nl_player_id, p.name, p.position, p.status]
       )
+      inserted++
     }
 
-    return NextResponse.json({ upserted: players.length, players })
+    return NextResponse.json({ upserted: players.length, inserted, linked, updated, players })
   } catch (err) {
     console.error('sync-squad error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
