@@ -1,0 +1,28 @@
+# Deploys every push to main to the Azure App Service.
+# Ships the repo source as-is; the App Service's Oryx build
+# (SCM_DO_BUILD_DURING_DEPLOYMENT=true) runs npm install + next build
+# server-side — same path as the manual `az webapp deploy` zips used
+# during the migration.
+name: Deploy to Azure App Service
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: azure-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ffl-farnborough
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: .
