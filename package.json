@@ -13,7 +13,6 @@
     "cheerio": "1.0.0-rc.12",
     "next": "14.0.4",
     "next-auth": "5.0.0-beta.25",
-    "nodemailer": "^6.9.16",
     "pg": "^8.11.5",
     "react": "^18",
     "react-dom": "^18",
