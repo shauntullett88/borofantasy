@@ -15,7 +15,7 @@ import { requireAdmin } from '../../../lib/authz'
 const NL_API_BASE = 'https://multi-club-matches.football.web.gc.nationalleagueservices.co.uk/v2'
 const FARNBOROUGH_TEAM_ID = 't1044'
 const COMPETITION_ID = 372
-const SEASON_ID = 2025 // NL uses the season start year
+const SEASON_ID = 2026 // NL uses the season start year (2026 = the 2026/27 season)
 
 async function fetchFixtures(from, to, page = 1, pageSize = 100) {
   const params = new URLSearchParams({
@@ -44,8 +44,8 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}))
 
-    // Default: sync full 2025/26 season + upcoming 2026/27 fixtures
-    const from = body.from || '2025-08-01T00:00:00Z'
+    // Default: the full 2026/27 season
+    const from = body.from || '2026-08-01T00:00:00Z'
     const to   = body.to   || '2027-05-31T23:59:59Z'
     const page = body.page || 1
     const pageSize = body.pageSize || 100
