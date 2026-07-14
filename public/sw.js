@@ -4,6 +4,7 @@ const STATIC_ASSETS = [
   '/my-team',
   '/leaderboard',
   '/squad',
+  '/fixtures',
 ]
 
 self.addEventListener('install', (event) => {

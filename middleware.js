@@ -4,7 +4,7 @@ import { authConfig } from './auth.config'
 
 const { auth } = NextAuth(authConfig)
 
-const PROTECTED_PATHS = ['/my-team', '/squad', '/leaderboard', '/admin', '/rules']
+const PROTECTED_PATHS = ['/my-team', '/squad', '/leaderboard', '/fixtures', '/admin', '/rules']
 
 export default auth((req) => {
   const isProtected = PROTECTED_PATHS.some((path) => req.nextUrl.pathname.startsWith(path))
@@ -15,5 +15,5 @@ export default auth((req) => {
 })
 
 export const config = {
-  matcher: ['/my-team/:path*', '/squad/:path*', '/leaderboard/:path*', '/admin/:path*', '/rules/:path*'],
+  matcher: ['/my-team/:path*', '/squad/:path*', '/leaderboard/:path*', '/fixtures/:path*', '/admin/:path*', '/rules/:path*'],
 }
