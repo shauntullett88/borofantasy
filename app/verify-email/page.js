@@ -20,7 +20,7 @@ async function verify(token) {
   await sendMail({
     to: user.email,
     subject: 'Welcome to the Farnborough Fantasy League!',
-    html: welcomeEmail(user.username),
+    html: welcomeEmail(user.username, process.env.NEXT_PUBLIC_APP_URL),
   })
 
   return { ok: true }
