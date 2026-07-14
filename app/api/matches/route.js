@@ -6,7 +6,7 @@ export async function GET() {
   const { error } = await requireUser()
   if (error) return error
 
-  const matches = await query('select * from matches order by match_date desc')
+  const matches = await query('select * from matches order by match_date asc')
   return NextResponse.json({ matches })
 }
 
