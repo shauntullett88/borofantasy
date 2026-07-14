@@ -3,7 +3,7 @@ const STATIC_ASSETS = [
   '/',
   '/my-team',
   '/leaderboard',
-  '/transfers',
+  '/squad',
 ]
 
 self.addEventListener('install', (event) => {

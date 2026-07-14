@@ -144,9 +144,9 @@ export default function MyTeamPage() {
         <div className="text-center py-16">
           <div className="text-5xl mb-4">⚽</div>
           <h2 className="text-xl font-bold mb-2">No Squad Yet</h2>
-          <p className="text-gray-400 text-sm mb-6">Head to Transfers to pick your team</p>
+          <p className="text-gray-400 text-sm mb-6">Head to Squad to pick your team</p>
           <button
-            onClick={() => router.push('/transfers')}
+            onClick={() => router.push('/squad')}
             className="bg-ffc-red text-white font-bold px-6 py-3 rounded-xl"
             type="button"
           >

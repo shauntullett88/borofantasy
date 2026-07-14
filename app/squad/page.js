@@ -17,7 +17,7 @@ function formatUK(date) {
   })
 }
 
-export default function TransfersPage() {
+export default function SquadPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
   const windowStatus = getTransferWindowStatus()
@@ -232,7 +232,7 @@ export default function TransfersPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-4">
-      <h1 className="text-2xl font-bold mb-1">Transfers</h1>
+      <h1 className="text-2xl font-bold mb-1">Squad</h1>
       <p className="text-gray-400 text-sm mb-4">
         {windowOpen
           ? `Window is open — closes ${formatUK(windowStatus.closesAt)} (UK time)`

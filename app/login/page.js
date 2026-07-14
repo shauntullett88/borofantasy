@@ -42,7 +42,13 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
-      router.push('/my-team')
+      // Hard navigation, not router.push — the session cookie is set by
+      // the signIn() fetch above, but NextAuth's client-side SessionProvider
+      // can still be in its stale ("unauthenticated") state for one render,
+      // which made /squad's own auth guard bounce straight back to /login.
+      // A full page load forces it to read the fresh cookie from the server.
+      window.location.href = '/squad'
+      return
     }
     setLoading(false)
   }
