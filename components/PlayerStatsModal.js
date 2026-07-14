@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { calculatePoints } from '../lib/game'
 import { POSITION_COLORS } from '../lib/game'
+import HomeAwayBadge from './HomeAwayBadge'
 
 const RESULT_STYLE = {
   W: 'bg-green-800 text-green-300',
@@ -132,8 +133,9 @@ export default function PlayerStatsModal({ player, isCaptain, isBench, onClose }
 
                   {/* Match info */}
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">
-                      {match.home ? 'vs' : '@'} {match.opponent}
+                    <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
+                      <HomeAwayBadge home={match.home} />
+                      {match.opponent}
                     </div>
                     <div className="flex gap-2 mt-0.5 flex-wrap">
                       {stat.started && <span className="text-xs text-gray-400">Started</span>}

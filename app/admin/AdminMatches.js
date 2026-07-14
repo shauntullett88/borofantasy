@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import HomeAwayBadge from '../../components/HomeAwayBadge'
 
 const EMPTY_MATCH = { opponent: '', match_date: new Date().toISOString().split('T')[0], home: true, result: null }
 
@@ -305,7 +306,8 @@ export default function AdminMatches() {
               }`}
               onClick={() => selectMatch(m)}
             >
-              <span className="flex-1 text-sm">{m.home ? 'vs' : '@'} {m.opponent}</span>
+              <HomeAwayBadge home={m.home} />
+              <span className="flex-1 text-sm">{m.opponent}</span>
               {m.result && (
                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
                   m.result === 'W' ? 'bg-green-800 text-green-300' :
@@ -329,8 +331,9 @@ export default function AdminMatches() {
           <div className="bg-ffc-surface rounded-2xl p-4 border border-ffc-muted mb-4">
             <div className="flex justify-between items-center mb-3">
               <div>
-                <h2 className="text-sm font-bold text-gray-300">
-                  {selectedMatch.home ? 'vs' : '@'} {selectedMatch.opponent}
+                <h2 className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                  <HomeAwayBadge home={selectedMatch.home} />
+                  {selectedMatch.opponent}
                 </h2>
                 <p className="text-xs text-gray-500">{new Date(selectedMatch.match_date).toLocaleDateString('en-GB')}</p>
               </div>
